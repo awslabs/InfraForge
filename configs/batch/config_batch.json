@@ -1,0 +1,98 @@
+{
+    "global": {
+        "stackName": "aws-infra-forge",
+        "dualStack": true,
+        "description": "Enterprise-Grade AWS Batch Container Computing Environment: Deploys a comprehensive containerized workload processing infrastructure with integrated high-performance storage and scalable compute resources. The solution features AWS Batch for managed container orchestration, Amazon EFS for shared persistent storage, and Amazon FSx for Lustre for high-performance file system access. Supports both EC2 and Fargate compute environments with flexible instance type selection, automatic scaling, and job queue management. Container workloads can access mounted storage systems through automated volume mapping, enabling seamless data processing workflows. Features intelligent UserData integration for storage mounting and system configuration, with support for custom initialization scripts via S3Location parameter. Includes both single-node and multi-node job definitions for diverse workload types from simple batch processing to distributed MPI applications. Software and dependencies are managed through container images, allowing for reproducible and portable workload execution. Ideal for batch processing, data analytics, machine learning training, scientific computing, and distributed computing workloads requiring scalable compute resources with high-performance storage access."
+    },
+    "enabledForges": [
+        "efs",
+        "fsx",
+        "batch"
+    ],
+    "forges": {
+        "vpc": {
+            "defaults": {
+                "id": "vpc",
+                "type": "VPC",
+                "cidrBlock": "10.69.0.0/16",
+                "natGatewayPerAZ": false
+            }
+        },
+        "efs": {
+            "defaults": {
+                "type": "EFS",
+                "security": "isolated",
+                "subnet": "isolated"
+            },
+            "instances": [
+                {
+                    "id": "efs"
+                }
+            ]
+        },
+        "lustre": {
+            "defaults": {
+                "type": "LUSTRE",
+                "security": "isolated",
+                "subnet": "isolated",
+                "azIndex": 1,
+                "dataCompressionType": "lz4",
+                "deploymentType": "scratch2",
+                "fileSystemVersion": "2.15",
+                "perUnitStorageThroughput": 250,
+                "removalPolicy": "destory",
+                "storageCapacityGiB": 1200
+            },
+            "instances": [
+                {
+                    "id": "fsx"
+                }
+            ]
+        },
+        "batch": {
+            "defaults": {
+                "type": "LUSTRE",
+                "security": "private",
+                "subnet": "private",
+                "azIndex": 0,
+                "instanceTypes": "m5.large,c5.xlarge",
+                "instanceRolePolicies": "service-role/AmazonEC2ContainerServiceforEC2Role,AmazonS3FullAccess,AmazonSSMManagedInstanceCore,CloudWatchAgentServerPolicy",
+                "serviceRolePolicies": "service-role/AWSBatchServiceRole",
+                "jobRolePolicies": "AmazonS3ReadOnlyAccess,CloudWatchLogsFullAccess",
+                "useOptimalInstanceTypes": false,
+                "updateToLatestImageVersion": false,
+                "maxvCpus": 1000,
+                "minvCpus": 0,
+                "desiredvCpus": 100,
+                "allocationStrategy": "BEST_FIT_PROGRESSIVE",
+                "spotBidPercentage": 50,
+                "queuePriority": 10,
+                "containerImage": "amazonlinux:latest",
+                "vcpus": 2,
+                "memory": 2048,
+                "userDataScriptPath": "",
+                "userDataToken": "nas",
+                "dependsOn": "",
+                "s3Location": "s3://aws-infra-forge"
+            },
+            "instances": [
+                {
+                    "id": "batch",
+                    "dependsOn": "EFS:efs,LUSTRE:fsx"
+                },
+                {
+                    "id": "batch-multinode",
+                    "instanceTypes": "c5n.xlarge",
+                    "maxvCpus": 200,
+                    "jobDefinitionType": "multinode",
+                    "numNodes": 4,
+                    "mainNode": 0,
+                    "containerImage": "mpirun/openmpi:latest",
+                    "vcpus": 4,
+                    "memory": 8192,
+                    "dependsOn": "LUSTRE:fsx"
+                }
+            ]
+        }
+    }
+}

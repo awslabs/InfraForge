@@ -1,0 +1,53 @@
+global:
+  stackName: aws-infra-forge
+  dualStack: true
+  description: 'Automated ReDroid Android Container Build Environment: Provisions a high-performance infrastructure for compiling and deploying ReDroid, an innovative containerized Android runtime solution. The environment automatically launches a powerful EC2 instance (c6i.32xlarge) with optimized storage configuration (1TB high-throughput gp3 volume) to efficiently handle the resource-intensive Android compilation process. Upon deployment, the system automatically downloads ReDroid source code, configures the build environment with all required dependencies, and executes the compilation process with non-root privileges for enhanced security. The resulting container images enable running Android applications in Linux containers without emulation overhead, providing near-native performance for Android workloads in cloud environments. Ideal for mobile application testing farms, continuous integration pipelines, and large-scale Android application deployment scenarios requiring containerized Android runtimes.'
+enabledForges:
+  - redroid
+forges:
+  vpc:
+    defaults:
+      id: vpc
+      type: VPC
+      cidrBlock: 10.69.0.0/16
+      natGatewayPerAZ: false
+  ec2:
+    defaults:
+      type: EC2
+      security: private
+      subnet: private
+      azIndex: 2
+      debug: false
+      instanceType: c7g.xlarge
+      instanceCount: 1
+      keyName: aws-infra-forge
+      detailedMonitoring: false
+      ebsVolumeType: gp3
+      ebsSize: 30
+      ebsThroughput: 125
+      ebsIops: 3000
+      ebsOptimized: false
+      enclaveEnabled: false
+      networkCardCount: 1
+      purchaseOption: od
+      spotMaxPrice: ""
+      capacityBlockId: ""
+      enableEfa: false
+      enaSrdEnabled: false
+      osArch: aarch64
+      osName: amazon
+      osType: linux
+      osVersion: "2023"
+      policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore
+      s3Location: s3://aws-infra-forge
+      allowedPorts: 22@0.0.0.0/0;80,443,8443@10.69.0.0/16
+      allowedPortsIpv6: 22,80,443,8443@::/0
+      requireImdsv2: true
+      userDataScriptPath: ""
+      userDataToken: sysinfo
+    instances:
+      - id: redroid
+        security: public
+        subnet: public
+        instanceType: c6i.32xlarge
+        userDataToken: redroid-nonroot

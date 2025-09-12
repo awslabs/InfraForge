@@ -1,0 +1,97 @@
+{
+    "global": {
+        "stackName": "aws-infra-forge",
+        "dualStack": true,
+        "description": "Automated Apache Kafka Cluster Deployment Solution: Provisions a production-ready Kafka environment with version-aware configuration management. Supports both ZooKeeper-dependent deployments (pre-4.0.0) and KRaft mode (4.0.0+) with appropriate architecture adjustments. For pre-4.0.0 versions, includes integrated ZooKeeper cluster management and comprehensive end-to-end automated testing scripts to validate cluster performance and reliability. The solution deploys a mixed-architecture environment with both x86_64 (m7i instances) and ARM64 (m7g instances) brokers for cross-platform compatibility testing. All nodes are placed in a cluster placement group for optimal network performance between brokers. Includes automated configuration of security groups, networking, and monitoring to ensure production readiness with minimal manual intervention."
+    },
+    "enabledForges": [
+        "kafkacluster",
+        "kafkaworkerm7g",
+        "kafkaworkerm7i"
+    ],
+    "forges": {
+        "vpc": {
+            "defaults": {
+                "id": "vpc",
+                "type": "VPC",
+                "cidrBlock": "10.69.0.0/16",
+                "natGatewayPerAZ": false
+            }
+        },
+        "ec2": {
+            "defaults": {
+                "type": "EC2",
+                "security": "private",
+                "subnet": "private",
+                "azIndex": 2,
+                "debug": false,
+                "instanceType": "c7g.xlarge",
+                "instanceCount": 1,
+                "keyName": "aws-infra-forge",
+                "detailedMonitoring": false,
+                "ebsVolumeType": "gp3",
+                "ebsSize": 30,
+                "ebsThroughput": 125,
+                "ebsIops": 3000,
+                "ebsOptimized": false,
+                "enclaveEnabled": false,
+                "networkCardCount": 1,
+                "purchaseOption": "od",
+                "spotMaxPrice": "",
+                "capacityBlockId": "",
+                "enableEfa": false,
+                "enaSrdEnabled": false,
+                "osArch": "aarch64",
+                "osName": "amazon",
+                "osType": "linux",
+                "osVersion": "2023",
+                "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore",
+                "s3Location": "s3://aws-infra-forge",
+                "allowedPorts": "22@0.0.0.0/0;80,443,8443@10.69.0.0/16",
+                "allowedPortsIpv6": "22,80,443,8443@::/0",
+                "requireImdsv2": true,
+                "userDataScriptPath": "",
+                "userDataToken": "sysinfo"
+            },
+            "instances": [
+                {
+                    "id": "kafkacluster",
+                    "instanceType": "m7i.2xlarge",
+                    "ebsVolumeType": "gp3",
+                    "azIndex": 1,
+                    "instanceCount": 3,
+                    "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMFullAccess",
+                    "ebsSize": 100,
+                    "ebsThroughput": 1000,
+                    "ebsIops": 12000,
+                    "osArch": "x86_64",
+                    "enableEfa": false,
+                    "enaSrdEnabled": false,
+                    "storeInstanceInfo": true,
+                    "userDataToken": "kafkamaster:kafka_version=2.8.1;zookeeper_version=3.9.3"
+                },
+                {
+                    "id": "kafkaworkerm7g",
+                    "instanceType": "m7g.2xlarge",
+                    "instanceCount": 1,
+                    "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMFullAccess",
+                    "enableEfa": false,
+                    "enaSrdEnabled": false,
+                    "dependsOn": "EC2:kafkacluster",
+                    "userDataToken": "kafkaworker:kafka_version=2.8.1"
+                },
+                {
+                    "id": "kafkaworkerm7i",
+                    "instanceType": "m7i.2xlarge",
+                    "instanceCount": 1,
+                    "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMFullAccess",
+                    "enableEfa": false,
+                    "enaSrdEnabled": false,
+                    "osArch": "x86_64",
+                    "dependsOn": "EC2:kafkacluster",
+                    "userDataToken": "kafkaworker:kafka_version=2.8.1"
+                }
+            ]
+        }
+    }
+}

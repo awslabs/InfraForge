@@ -1,0 +1,152 @@
+global:
+  stackName: aws-infra-forge
+  dualStack: true
+  description: 'Enterprise-Grade AWS ParallelCluster HPC Environment: Deploys a comprehensive high-performance computing infrastructure with integrated identity management, shared storage, database services, and compute resources. The solution leverages AWS Directory Service for centralized authentication and user management, Amazon EFS for user home directories, Amazon FSx for Lustre for high-throughput file system access, and Amazon RDS Aurora for Slurm accounting database. Features a flexible architecture with support for both CPU and GPU compute partitions, enabling diverse workload execution from traditional HPC simulations to accelerated machine learning training and data analytics. Includes version-specific deployment options for ParallelCluster, allowing precise control over the infrastructure stack. Software installation is streamlined through the userDataToken parameter - simply specify the desired software name in lowercase (e.g., grafana, protenix, openfoam, wrf) to automatically deploy specialized HPC applications (default is ''none''). Ideal for research institutions, engineering teams, and data science groups requiring a managed, scalable HPC environment with enterprise-level identity integration, high-performance storage, and Slurm workload accounting capabilities.'
+enabledForges:
+  - efs
+  - fsx
+  - rds
+  - bingds
+  - dsadmin
+  - parallelcluster
+forges:
+  vpc:
+    defaults:
+      id: vpc
+      type: VPC
+      cidrBlock: 10.69.0.0/16
+      natGatewayPerAZ: false
+  efs:
+    defaults:
+      type: EFS
+      security: isolated
+      subnet: isolated
+    instances:
+      - id: efs
+  lustre:
+    defaults:
+      type: LUSTRE
+      security: isolated
+      subnet: isolated
+      azIndex: 1
+      dataCompressionType: lz4
+      deploymentType: scratch2
+      fileSystemVersion: "2.15"
+      perUnitStorageThroughput: 250
+      removalPolicy: destory
+      storageCapacityGiB: 1200
+    instances:
+      - id: fsx
+  rds:
+    defaults:
+      type: RDS
+      subnet: isolated
+      security: isolated
+      engine: aurora-mysql
+      commentEngineVersion: '=== query command: aws rds describe-db-engine-versions --engine <engine> --query ''DBEngineVersions[*].EngineVersion'' ==='
+      engineVersion: ""
+      instanceType: r7g.large
+      storageEncrypted: true
+      clusterMode: true
+      readerInstances: 1
+      deletionProtection: false
+      useManagedPassword: true
+    instances:
+      - id: rds
+        useManagedPassword: false
+  ds:
+    defaults:
+      type: DS
+      security: private
+      subnet: private
+      edition: Standard
+      enableSso: true
+    instances:
+      - id: bingds
+        domainName: ds.infraforge.aws
+        shortName: bingds
+        unixHome: /efs/home
+  ec2:
+    defaults:
+      type: EC2
+      security: private
+      subnet: private
+      azIndex: 2
+      debug: false
+      instanceType: c7g.xlarge
+      instanceCount: 1
+      keyName: aws-infra-forge
+      detailedMonitoring: false
+      ebsVolumeType: gp3
+      ebsSize: 30
+      ebsThroughput: 125
+      ebsIops: 3000
+      ebsOptimized: false
+      enclaveEnabled: false
+      networkCardCount: 1
+      purchaseOption: od
+      spotMaxPrice: ""
+      capacityBlockId: ""
+      enableEfa: false
+      enaSrdEnabled: false
+      osArch: aarch64
+      osName: amazon
+      osType: linux
+      osVersion: "2023"
+      policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore
+      s3Location: s3://aws-infra-forge
+      allowedPorts: 22@0.0.0.0/0;80,443,8443@10.69.0.0/16
+      allowedPortsIpv6: 22,80,443,8443@::/0
+      requireImdsv2: true
+      userDataScriptPath: ""
+      userDataToken: sysinfo
+    instances:
+      - id: dsadmin
+        dependsOn: DS:bingds,EFS:efs,LUSTRE:fsx
+        policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AWSDirectoryServiceFullAccess,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess
+        ebsSize: 100
+        instanceType: c7g.xlarge
+        userDataToken: directorymanager
+  parallelcluster:
+    defaults:
+      type: PARALLELCLUSTER
+      security: private
+      subnet: private
+      additionalPolicies: AmazonSSMManagedInstanceCore
+      azIndex: 1
+      computeNodeType: t3.micro
+      diskSize: 50
+      headNodeType: t3.medium
+      enableDcv: false
+      minSize: 0
+      maxSize: 10
+      enableEfa: false
+      placementGroupEnabled: false
+      pgAzIndex: 1
+      enableGpuQueue: false
+      disableSimultaneousMultithreading: false
+      scalingStrategy: all-or-nothing
+      allocationStrategy: lowest-price
+      spotAllocationStrategy: price-capacity-optimized
+      gpuMinSize: 0
+      gpuMaxSize: 10
+      gpuEnableEfa: false
+      gpuPlacementGroupEnabled: false
+      gpuPgAzIndex: 1
+      osType: alinux2
+      allowedPorts: 22,8443@0.0.0.0/0
+      allowedPortsIpv6: 22,8443@::/0
+      UserDataScriptPath: https://aws-hpc-builder.s3.amazonaws.com/project/user_data
+      version: 3.13.2
+    instances:
+      - id: parallelcluster
+        clusterName: InfraForgePCluster
+        computeNodeType: c6i.4xlarge,m6i.4xlarge
+        dependsOn: RDS:rds,DS:bingds,EFS:efs,LUSTRE:fsx
+        headNodeType: c6i.xlarge
+        userDataToken: none
+        enableGpuQueue: true
+        gpuInstanceType: g4dn.4xlarge,g5.4xlarge
+        headNodeBootstrapTimeout: 7200
+        computeNodeBootstrapTimeout: 1200
+        keyName: parallelcluster

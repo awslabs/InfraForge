@@ -1,0 +1,149 @@
+apiVersion: kubeflow.org/v1
+kind: PyTorchJob
+metadata:
+  name: pytorch-gpu-dist
+  namespace: kubeflow
+spec:
+  pytorchReplicaSpecs:
+    Master:
+      replicas: 1
+      restartPolicy: OnFailure
+      template:
+        spec:
+          tolerations:
+          - key: "nvidia.com/gpu"
+            operator: "Equal"
+            value: "true"
+            effect: "NoSchedule"
+          nodeSelector:
+            accelerator: nvidia
+            kubernetes.io/arch: amd64  # 限制为 x86_64 架构
+          containers:
+          - name: pytorch
+            image: pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime
+            command:
+              - python
+              - -c
+              - |
+                import torch
+                import torch.distributed as dist
+                import os
+                import time
+                
+                print(f"Node Info:")
+                print(f"Hostname: {os.uname().nodename}")
+                print(f"CUDA available: {torch.cuda.is_available()}")
+                if torch.cuda.is_available():
+                    print(f"GPU count: {torch.cuda.device_count()}")
+                    print(f"GPU name: {torch.cuda.get_device_name(0)}")
+                
+                print(f"\nDistributed Training Info:")
+                print(f"MASTER_ADDR: {os.environ['MASTER_ADDR']}")
+                print(f"MASTER_PORT: {os.environ['MASTER_PORT']}")
+                print(f"WORLD_SIZE: {os.environ['WORLD_SIZE']}")
+                print(f"RANK: {os.environ['RANK']}")
+                
+                # 初始化分布式环境
+                if int(os.environ['WORLD_SIZE']) > 1:
+                    try:
+                        dist.init_process_group("nccl")
+                        print("分布式环境初始化成功")
+                    except Exception as e:
+                        print(f"分布式环境初始化失败: {e}")
+                
+                # 模拟训练过程
+                print("开始训练模拟...")
+                if torch.cuda.is_available():
+                    # 创建一个随机张量并移动到 GPU
+                    x = torch.rand(5000, 5000).cuda()
+                    for i in range(50):
+                        result = torch.matmul(x, x)
+                        print(f"迭代 {i+1}: 矩阵乘法完成，结果形状: {result.shape}")
+                        time.sleep(1)
+                else:
+                    print("无法进行 GPU 计算，因为 CUDA 不可用")
+                
+                # 清理
+                if int(os.environ['WORLD_SIZE']) > 1 and dist.is_initialized():
+                    dist.destroy_process_group()
+                    print("分布式环境已清理")
+                
+                print("任务完成")
+            resources:
+              limits:
+                nvidia.com/gpu: 1
+              requests:
+                nvidia.com/gpu: 1
+                cpu: "1"
+                memory: "4Gi"
+    Worker:
+      replicas: 2
+      restartPolicy: OnFailure
+      template:
+        spec:
+          tolerations:
+          - key: "nvidia.com/gpu"
+            operator: "Equal"
+            value: "true"
+            effect: "NoSchedule"
+          nodeSelector:
+            accelerator: nvidia
+            kubernetes.io/arch: amd64  # 限制为 x86_64 架构
+          containers:
+          - name: pytorch
+            image: pytorch/pytorch:1.13.1-cuda11.6-cudnn8-runtime
+            command:
+              - python
+              - -c
+              - |
+                import torch
+                import torch.distributed as dist
+                import os
+                import time
+                
+                print(f"Node Info:")
+                print(f"Hostname: {os.uname().nodename}")
+                print(f"CUDA available: {torch.cuda.is_available()}")
+                if torch.cuda.is_available():
+                    print(f"GPU count: {torch.cuda.device_count()}")
+                    print(f"GPU name: {torch.cuda.get_device_name(0)}")
+                
+                print(f"\nDistributed Training Info:")
+                print(f"MASTER_ADDR: {os.environ['MASTER_ADDR']}")
+                print(f"MASTER_PORT: {os.environ['MASTER_PORT']}")
+                print(f"WORLD_SIZE: {os.environ['WORLD_SIZE']}")
+                print(f"RANK: {os.environ['RANK']}")
+                
+                # 初始化分布式环境
+                if int(os.environ['WORLD_SIZE']) > 1:
+                    try:
+                        dist.init_process_group("nccl")
+                        print("分布式环境初始化成功")
+                    except Exception as e:
+                        print(f"分布式环境初始化失败: {e}")
+                
+                # 模拟训练过程
+                print("开始训练模拟...")
+                if torch.cuda.is_available():
+                    # 创建一个随机张量并移动到 GPU
+                    x = torch.rand(5000, 5000).cuda()
+                    for i in range(50):
+                        result = torch.matmul(x, x)
+                        print(f"迭代 {i+1}: 矩阵乘法完成，结果形状: {result.shape}")
+                        time.sleep(1)
+                else:
+                    print("无法进行 GPU 计算，因为 CUDA 不可用")
+                
+                # 清理
+                if int(os.environ['WORLD_SIZE']) > 1 and dist.is_initialized():
+                    dist.destroy_process_group()
+                    print("分布式环境已清理")
+                
+                print("任务完成")
+            resources:
+              limits:
+                nvidia.com/gpu: 1
+              requests:
+                nvidia.com/gpu: 1
+                cpu: "1"
+                memory: "4Gi"

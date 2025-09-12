@@ -1,0 +1,87 @@
+enabledForges = ["kudumaster", "kudutserver", "kudutserverx86", "windows2019"]
+
+[global]
+stackName = "aws-infra-forge"
+dualStack = true
+description = "Enterprise Apache Kudu Cluster Deployment Solution: Provisions a highly available, distributed columnar storage system optimized for fast analytics on rapidly changing data. The architecture implements Kudu best practices with multiple master servers for high availability and fault tolerance, alongside scalable tablet servers (tservers) for data storage and processing. Uniquely supports cross-architecture deployment with both ARM64 and x86_64 tablet servers in the same cluster, enabling performance comparison and workload optimization across processor architectures. Includes a Windows monitoring instance with NICE DCV for convenient graphical access to cluster management interfaces and performance dashboards. All components are automatically configured with appropriate security groups, networking, and instance metadata sharing for seamless cluster formation. Ideal for organizations requiring real-time analytics, time-series data processing, and machine learning data pipelines with the flexibility of mixed-architecture environments."
+
+[forges]
+[forges.vpc]
+[forges.vpc.defaults]
+id = "vpc"
+type = "VPC"
+cidrBlock = "10.69.0.0/16"
+natGatewayPerAZ = false
+[forges.ec2]
+[forges.ec2.defaults]
+type = "EC2"
+security = "private"
+subnet = "private"
+azIndex = 2
+debug = false
+instanceType = "c7g.xlarge"
+instanceCount = 1
+keyName = "aws-infra-forge"
+detailedMonitoring = false
+ebsVolumeType = "gp3"
+ebsSize = 30
+ebsThroughput = 125
+ebsIops = 3000
+ebsOptimized = false
+enclaveEnabled = false
+networkCardCount = 1
+purchaseOption = "od"
+spotMaxPrice = ""
+capacityBlockId = ""
+enableEfa = false
+enaSrdEnabled = false
+osArch = "aarch64"
+osName = "amazon"
+osType = "linux"
+osVersion = "2023"
+policies = "AmazonS3FullAccess,AmazonSSMManagedInstanceCore"
+s3Location = "s3://aws-infra-forge"
+allowedPorts = "22@0.0.0.0/0;80,443,8443@10.69.0.0/16"
+allowedPortsIpv6 = "22,80,443,8443@::/0"
+requireImdsv2 = true
+userDataScriptPath = ""
+userDataToken = "sysinfo"
+
+[[forges.ec2.instances]]
+id = "kudumaster"
+instanceType = "c7g.xlarge"
+ebsSize = 300
+instanceCount = 3
+policies = "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess"
+storeInstanceInfo = true
+userDataToken = "kudumaster"
+
+[[forges.ec2.instances]]
+id = "kudutserver"
+instanceType = "c7g.xlarge"
+instanceCount = 3
+policies = "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess"
+ebsSize = 300
+dependsOn = "EC2:kudumaster"
+userDataToken = "kudutserver"
+
+[[forges.ec2.instances]]
+id = "kudutserverx86"
+instanceType = "c6i.xlarge"
+instanceCount = 3
+policies = "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess"
+ebsSize = 300
+osArch = "x86_64"
+dependsOn = "EC2:kudumaster"
+userDataToken = "kudutserver"
+
+[[forges.ec2.instances]]
+id = "windows2019"
+instanceType = "c6i.2xlarge"
+policies = "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess"
+security = "public"
+subnet = "public"
+osName = "windows"
+osType = "windows"
+osVersion = "2019"
+osArch = "x86_64"

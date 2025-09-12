@@ -1,0 +1,106 @@
+global:
+  stackName: aws-infra-forge
+  dualStack: true
+  description: 'Distributed Redis Performance Testing Platform: Deploys a comprehensive load testing environment for Redis databases using Go-powered Locust worker implementation. The architecture follows a master-worker pattern with one control node and multiple worker nodes for scalable, high-volume load generation. Includes a dedicated Redis instance as the system under test, with configurable instance types to match production environments. Features a Windows Server 2022 instance with NICE DCV for convenient graphical access to the testing interface, real-time metrics visualization, and test scenario management. The solution enables precise performance characterization of Redis deployments under various workload patterns, connection counts, and data access scenarios. All components are automatically configured with appropriate security groups, networking, and dependencies for immediate testing capability. Ideal for capacity planning, performance tuning, and regression testing of Redis-backed applications.'
+enabledForges:
+  - locustMaster
+  - locustWorker
+  - windows2022
+forges:
+  vpc:
+    defaults:
+      id: vpc
+      type: VPC
+      cidrBlock: 10.69.0.0/16
+      natGatewayPerAZ: false
+  efs:
+    defaults:
+      type: EFS
+      security: isolated
+      subnet: isolated
+    instances:
+      - id: efs
+      - id: efs1
+  lustre:
+    defaults:
+      type: LUSTRE
+      security: isolated
+      subnet: isolated
+      azIndex: 1
+      deploymentType: scratch2
+      dataCompressionType: lz4
+      fileSystemVersion: "2.15"
+      perUnitStorageThroughput: 250
+      removalPolicy: destory
+      storageCapacityGiB: 1200
+    instances:
+      - id: lustre1
+  ec2:
+    defaults:
+      type: EC2
+      security: private
+      subnet: private
+      azIndex: 2
+      debug: false
+      instanceType: c7g.xlarge
+      instanceCount: 1
+      keyName: aws-infra-forge
+      detailedMonitoring: false
+      ebsVolumeType: gp3
+      ebsSize: 30
+      ebsThroughput: 125
+      ebsIops: 3000
+      ebsOptimized: false
+      enclaveEnabled: false
+      networkCardCount: 1
+      purchaseOption: od
+      spotMaxPrice: ""
+      capacityBlockId: ""
+      enableEfa: false
+      enaSrdEnabled: false
+      osArch: aarch64
+      osName: amazon
+      osType: linux
+      osVersion: "2023"
+      policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore
+      s3Location: s3://aws-infra-forge
+      allowedPorts: 22@0.0.0.0/0;80,443,8443@10.69.0.0/16
+      allowedPortsIpv6: 22,80,443,8443@::/0
+      requireImdsv2: true
+      userDataScriptPath: ""
+      userDataToken: sysinfo
+    instances:
+      - id: redis
+        instanceType: c7g.xlarge
+        instanceCount: 1
+        security: private
+        subnet: private
+        ebsSize: 30
+        userDataToken: redis
+        enclaveEnabled: false
+      - id: locustMaster
+        instanceType: c7g.xlarge
+        instanceCount: 1
+        security: private
+        subnet: private
+        ebsSize: 30
+        dependsOn: EC2:redis
+        userDataToken: locust-redis_master
+        enclaveEnabled: false
+      - id: locustWorker
+        instanceType: c7g.xlarge
+        instanceCount: 3
+        security: private
+        subnet: private
+        ebsSize: 30
+        dependsOn: EC2:locustMaster
+        userDataToken: locust-redis_worker
+        enclaveEnabled: false
+      - id: windows2022
+        instanceType: c6i.xlarge
+        security: public
+        subnet: public
+        osName: windows
+        osType: windows
+        osVersion: "2022"
+        osArch: x86_64

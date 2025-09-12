@@ -1,0 +1,81 @@
+global:
+  stackName: aws-infra-forge
+  dualStack: true
+  description: 'Integrated AWS Managed Directory Service Solution for Linux Environments: Establishes a complete directory infrastructure with centralized user management and authentication. The solution deploys an AD control node (EC2 with userDataToken ''directorymanager'') that joins the cluster via AD(SSSD) for user management with a default ''dsadmin'' user. Additional Linux instances (EC2 with userDataToken ''directoryservice'') authenticate through LDAP against the Active Directory. The architecture leverages Amazon EFS as a shared home directory for domain users, enabling consistent user profiles across all instances. Supports SSO capabilities and standard directory service features with seamless Linux integration.'
+enabledForges:
+  - bingds
+  - efs
+  - dsadmin
+  - dslinux
+forges:
+  vpc:
+    defaults:
+      id: vpc
+      type: VPC
+      cidrBlock: 10.69.0.0/16
+      natGatewayPerAZ: false
+  efs:
+    defaults:
+      type: EFS
+      security: isolated
+      subnet: isolated
+    instances:
+      - id: efs
+  ds:
+    defaults:
+      type: DS
+      security: private
+      subnet: private
+      edition: Standard
+      enableSso: true
+    instances:
+      - id: bingds
+        domainName: bingds.infraforge.aws
+        shortName: bingds
+        unixHome: /efs/home
+  ec2:
+    defaults:
+      type: EC2
+      security: private
+      subnet: private
+      azIndex: 2
+      debug: false
+      instanceType: c7g.xlarge
+      instanceCount: 1
+      keyName: aws-infra-forge
+      detailedMonitoring: false
+      ebsVolumeType: gp3
+      ebsSize: 30
+      ebsThroughput: 125
+      ebsIops: 3000
+      ebsOptimized: false
+      enclaveEnabled: false
+      networkCardCount: 1
+      purchaseOption: od
+      spotMaxPrice: ""
+      capacityBlockId: ""
+      enableEfa: false
+      enaSrdEnabled: false
+      osArch: aarch64
+      osName: amazon
+      osType: linux
+      osVersion: "2023"
+      policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore
+      s3Location: s3://aws-infra-forge
+      allowedPorts: 22@0.0.0.0/0;80,443,8443@10.69.0.0/16
+      allowedPortsIpv6: 22,80,443,8443@::/0
+      requireImdsv2: true
+      userDataScriptPath: ""
+      userDataToken: sysinfo
+    instances:
+      - id: dsadmin
+        instanceType: c7g.xlarge
+        ebsSize: 100
+        dependsOn: DS:bingds,EFS:efs
+        userDataToken: directorymanager
+      - id: dslinux
+        instanceType: c7g.xlarge
+        instanceCount: 2
+        ebsSize: 100
+        dependsOn: DS:bingds,EFS:efs
+        userDataToken: directoryservice

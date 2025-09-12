@@ -1,0 +1,63 @@
+global:
+  stackName: aws-infra-forge
+  dualStack: true
+  description: 'Distributed JMeter Load Testing Cluster: Deploys a high-performance testing infrastructure with one master node and multiple worker nodes for scalable load generation. The master node comes pre-configured with optimized JMeter settings and automatically discovers all worker nodes. Users can immediately execute distributed load tests by logging into the master node and using the pre-configured JMeter command alias (jmeter=''jmeter -Jserver.rmi.ssl.disable=true -R${WORKER_ADDRESSES}''), which automatically distributes test execution across all worker nodes. The solution includes NICE DCV for convenient remote desktop access to the master node, enabling visual test development and real-time monitoring. Users need only to provide their JMeter test plans (.jmx files) to begin testing. Ideal for performance testing web applications, APIs, databases, and other services at enterprise scale.'
+enabledForges:
+  - jmeterworker
+  - jmetermaster
+forges:
+  vpc:
+    defaults:
+      id: vpc
+      type: VPC
+      cidrBlock: 10.69.0.0/16
+      natGatewayPerAZ: false
+  ec2:
+    defaults:
+      type: EC2
+      security: private
+      subnet: private
+      azIndex: 2
+      debug: false
+      instanceType: c7g.xlarge
+      instanceCount: 1
+      keyName: aws-infra-forge
+      detailedMonitoring: false
+      ebsVolumeType: gp3
+      ebsSize: 30
+      ebsThroughput: 125
+      ebsIops: 3000
+      ebsOptimized: false
+      enclaveEnabled: false
+      networkCardCount: 1
+      purchaseOption: od
+      spotMaxPrice: ""
+      capacityBlockId: ""
+      enableEfa: false
+      enaSrdEnabled: false
+      osArch: aarch64
+      osName: amazon
+      osType: linux
+      osVersion: "2023"
+      policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore
+      s3Location: s3://aws-infra-forge
+      allowedPorts: 22@0.0.0.0/0;80,443,8443@10.69.0.0/16
+      allowedPortsIpv6: 22,80,443,8443@::/0
+      requireImdsv2: true
+      userDataScriptPath: ""
+      userDataToken: sysinfo
+    instances:
+      - id: jmeterworker
+        instanceType: c7g.xlarge
+        instanceCount: 3
+        policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess
+        userDataToken: jmeterworker
+      - id: jmetermaster
+        instanceType: c7g.4xlarge
+        ebsSize: 300
+        instanceCount: 1
+        policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess
+        dependsOn: EC2:jmeterworker
+        security: public
+        subnet: public
+        userDataToken: jmetermaster nicedcv

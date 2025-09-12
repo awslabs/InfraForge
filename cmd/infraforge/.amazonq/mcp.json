@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "infraforge": {
+      "command": "infraforge_mcp_server",
+      "args": [],
+      "env": {},
+      "timeout": 7200000
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+    "dependencies": {
+        "DS:bingds": {
+            "type": "DS",
+            "id": "bingds",
+            "properties": {
+                "attrDnsIpAddresses": [
+                    "10.69.4.214",
+                    "10.69.3.69"
+                ],
+                "attrId": "d-96674f91b5",
+                "name": "bingds.infraforge.aws",
+                "password": "P3.14159265i",
+                "shortName": "bingds",
+                "unixHome": "/efs/home"
+            }
+        },
+        "EC2:master": {
+            "type": "EC2",
+            "id": "master",
+            "properties": {
+                "instances": [
+                    {
+                        "instanceId": "i-023bb5bc101073e26",
+			"instancePrivateDnsName": "ip-10-69-3-103.ap-southeast-1.compute.internal",
+                        "instancePrivateIp": "10.69.3.130"
+                    },
+                    {
+                        "instanceId": "i-01234567890123456",
+			"instancePrivateDnsName": "ip-10-69-3-131.ap-southeast-1.compute.internal",
+                        "instancePrivateIp": "10.69.3.131"
+                    }
+                ]
+            }
+        },
+        "EFS:efs": {
+            "type": "EFS",
+            "id": "efs",
+            "properties": {
+                "fileSystemId": "fs-0389c91c0321b176d",
+                "mountPoint": "/efs"
+            }
+        }
+    }
+}

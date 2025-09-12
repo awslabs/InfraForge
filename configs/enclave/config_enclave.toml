@@ -1,0 +1,55 @@
+enabledForges = ["AL2023Enclave"]
+
+[global]
+stackName = "aws-infra-forge"
+dualStack = true
+description = "Automated AWS Nitro Enclaves Deployment Solution: Provisions secure, isolated compute environments for sensitive workloads with enhanced security boundaries. The pre-configured Enclave image includes a comprehensive suite of performance testing and monitoring tools: ethr (network performance testing), iperf-vsock (VSOCK communication benchmarking), stress-ng (system stress testing and validation), and node_exporter (metrics collection for observability). This solution streamlines the deployment of Nitro Enclaves with best practices for attestation, memory allocation, and parent-enclave communication, enabling confidential computing use cases such as secure data processing, cryptographic operations, and sensitive workload isolation."
+
+[forges]
+[forges.vpc]
+[forges.vpc.defaults]
+id = "vpc"
+type = "VPC"
+cidrBlock = "10.69.0.0/16"
+natGatewayPerAZ = false
+[forges.ec2]
+[forges.ec2.defaults]
+type = "EC2"
+security = "private"
+subnet = "private"
+azIndex = 2
+debug = false
+instanceType = "c7g.xlarge"
+instanceCount = 1
+keyName = "aws-infra-forge"
+detailedMonitoring = false
+ebsVolumeType = "gp3"
+ebsSize = 30
+ebsThroughput = 125
+ebsIops = 3000
+ebsOptimized = false
+enclaveEnabled = false
+networkCardCount = 1
+purchaseOption = "od"
+spotMaxPrice = ""
+capacityBlockId = ""
+enableEfa = false
+enaSrdEnabled = false
+osArch = "aarch64"
+osName = "amazon"
+osType = "linux"
+osVersion = "2023"
+policies = "AmazonS3FullAccess,AmazonSSMManagedInstanceCore"
+s3Location = "s3://aws-infra-forge"
+allowedPorts = "22@0.0.0.0/0;80,443,8443@10.69.0.0/16"
+allowedPortsIpv6 = "22,80,443,8443@::/0"
+requireImdsv2 = true
+userDataScriptPath = ""
+userDataToken = "sysinfo"
+
+[[forges.ec2.instances]]
+id = "AL2023Enclave"
+instanceType = "c7g.4xlarge"
+ebsSize = 100
+enclaveEnabled = true
+userDataToken = "enclave-nonroot"

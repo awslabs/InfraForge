@@ -1,0 +1,31 @@
+enabledForges = ["rds"]
+
+[global]
+stackName = "aws-infra-forge"
+dualStack = true
+description = "Enterprise-Grade AWS RDS Database Environment: Deploys a comprehensive managed database infrastructure with support for multiple database engines including MySQL, PostgreSQL, MariaDB, SQL Server, and Aurora. Features flexible deployment options with both single-instance and cluster modes, automated backup and recovery, encryption at rest, and multi-AZ deployment for high availability. Supports both AWS-managed passwords for enhanced security and custom password management. The solution provides seamless integration with VPC networking, security groups, and subnet configurations for secure database access. Ideal for applications requiring reliable, scalable, and managed database services with enterprise-level security and performance optimization."
+
+[forges]
+[forges.vpc]
+[forges.vpc.defaults]
+id = "vpc"
+type = "VPC"
+cidrBlock = "10.69.0.0/16"
+natGatewayPerAZ = false
+[forges.rds]
+[forges.rds.defaults]
+type = "RDS"
+subnet = "isolated"
+security = "isolated"
+engine = "aurora-mysql"
+commentEngineVersion = "=== query command: aws rds describe-db-engine-versions --engine <engine> --query 'DBEngineVersions[*].EngineVersion' ==="
+engineVersion = ""
+instanceType = "r7g.large"
+storageEncrypted = true
+clusterMode = true
+readerInstances = 2
+deletionProtection = false
+useManagedPassword = true
+
+[[forges.rds.instances]]
+id = "rds"

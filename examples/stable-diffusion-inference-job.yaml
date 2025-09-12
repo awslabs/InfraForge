@@ -1,0 +1,164 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stable-diffusion-inference
+  namespace: default
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      nodeSelector:
+        accelerator: nvidia
+        kubernetes.io/arch: amd64  # 使用 x86_64 架构
+        node.kubernetes.io/instance-type: g6.xlarge  # 指定GPU实例类型
+      containers:
+      - name: stable-diffusion
+        image: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+        command:
+          - /bin/bash
+          - -c
+          - |
+            set -e
+            echo "=== 环境信息 ==="
+            echo "Hostname: $(hostname)"
+            echo "CUDA available: $(python -c 'import torch; print(torch.cuda.is_available())')"
+            echo "GPU count: $(python -c 'import torch; print(torch.cuda.device_count())')"
+            echo "GPU name: $(python -c 'import torch; print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")')"
+            echo "GPU memory: $(python -c 'import torch; print(f"{torch.cuda.get_device_properties(0).total_memory/1024**3:.1f}GB" if torch.cuda.is_available() else "No GPU")')"
+            
+            echo "=== 检查存储挂载 ==="
+            echo "EFS mount point: /shared"
+            ls -la /shared/
+            mkdir -p /shared/stable-diffusion-outputs
+            echo "Created output directory: /shared/stable-diffusion-outputs"
+            
+            echo "=== 安装依赖 ==="
+            pip install --no-cache-dir diffusers transformers accelerate safetensors xformers
+            
+            echo "=== 开始推理 ==="
+            python -c "
+            import torch
+            from diffusers import StableDiffusionPipeline
+            import time
+            import os
+            from datetime import datetime
+            
+            print('Loading Stable Diffusion model...')
+            # 使用Stable Diffusion 1.5模型
+            model_id = 'runwayml/stable-diffusion-v1-5'
+            
+            # 加载模型到GPU
+            pipe = StableDiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=torch.float32,  # 使用FP32
+                safety_checker=None,
+                requires_safety_checker=False
+            )
+            pipe = pipe.to('cuda')
+            
+            print('Model loaded successfully!')
+            print(f'Model device: {pipe.device}')
+            
+            # 推理参数
+            prompt = 'A beautiful landscape with mountains and a lake, highly detailed, 8k'
+            batch_size = 1  # 一次生成1张图片
+            height = 1024
+            width = 1024
+            num_inference_steps = 25
+            
+            print(f'Starting inference with parameters:')
+            print(f'  Prompt: {prompt}')
+            print(f'  Batch size: {batch_size}')
+            print(f'  Resolution: {width}x{height}')
+            print(f'  Inference steps: {num_inference_steps}')
+            
+            # 开始推理
+            start_time = time.time()
+            
+            with torch.no_grad():
+                images = pipe(
+                    prompt,
+                    height=height,
+                    width=width,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=7.5,
+                    num_images_per_prompt=batch_size
+                ).images
+            
+            end_time = time.time()
+            inference_time = end_time - start_time
+            
+            print(f'Inference completed in {inference_time:.2f} seconds')
+            print(f'Generated {len(images)} image(s)')
+            
+            # 创建带时间戳的输出目录
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_dir = f'/shared/stable-diffusion-outputs/{timestamp}'
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # 保存图片到EFS共享存储
+            saved_files = []
+            for i, image in enumerate(images):
+                filename = f'{output_dir}/generated_image_{i}.png'
+                image.save(filename)
+                saved_files.append(filename)
+                print(f'Saved image to {filename}')
+            
+            # 保存推理信息到文本文件
+            info_file = f'{output_dir}/inference_info.txt'
+            with open(info_file, 'w') as f:
+                f.write(f'Stable Diffusion Inference Results\\n')
+                f.write(f'================================\\n')
+                f.write(f'Timestamp: {timestamp}\\n')
+                f.write(f'Prompt: {prompt}\\n')
+                f.write(f'Resolution: {width}x{height}\\n')
+                f.write(f'Inference Steps: {num_inference_steps}\\n')
+                f.write(f'Batch Size: {batch_size}\\n')
+                f.write(f'Inference Time: {inference_time:.2f} seconds\\n')
+                f.write(f'GPU: {torch.cuda.get_device_name(0)}\\n')
+                f.write(f'Generated Images: {len(images)}\\n')
+                f.write(f'\\nSaved Files:\\n')
+                for file in saved_files:
+                    f.write(f'  - {file}\\n')
+            
+            print(f'Saved inference info to {info_file}')
+            
+            # 显示GPU内存使用情况
+            if torch.cuda.is_available():
+                print(f'GPU memory allocated: {torch.cuda.memory_allocated()/1024**3:.2f}GB')
+                print(f'GPU memory cached: {torch.cuda.memory_reserved()/1024**3:.2f}GB')
+            
+            print(f'All outputs saved to: {output_dir}')
+            print('Inference job completed successfully!')
+            "
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: "16Gi"
+            cpu: "4"
+          requests:
+            nvidia.com/gpu: 1
+            memory: "12Gi"
+            cpu: "2"
+        env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        - name: PYTORCH_CUDA_ALLOC_CONF
+          value: "max_split_size_mb:128"
+        volumeMounts:
+        - name: efs-storage
+          mountPath: /shared
+        - name: tmp-storage
+          mountPath: /tmp
+      volumes:
+      - name: efs-storage
+        persistentVolumeClaim:
+          claimName: efs-sc-pvc
+      - name: tmp-storage
+        emptyDir:
+          sizeLimit: 10Gi

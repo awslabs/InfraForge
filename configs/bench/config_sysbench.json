@@ -1,0 +1,73 @@
+{
+    "global": {
+        "stackName": "aws-infra-forge",
+        "dualStack": true,
+        "description": "Comprehensive EC2 Instance Performance Benchmark Suite: Evaluates compute, memory, and I/O performance using industry-standard benchmarks including stream, mlc, SPEC CPU, SPECjbb, lmbench (L1/L2/L3 cache and main memory latency), real-time tests, sysbench, FIO, UNIX benchmarks, c2clat (core-to-core latency), and Phoronix Test Suite. Main modules are separated by ';' while PTS sub-modules use ',' as delimiter. Test results are automatically uploaded to the specified S3 location (s3Location parameter). Supports both x86_64 and ARM architectures for cross-platform performance comparison."
+    },
+    "enabledForges": [
+        "al2023benchc6i",
+        "al2023benchc7g"
+    ],
+    "forges": {
+        "vpc": {
+            "defaults": {
+                "id": "vpc",
+                "type": "VPC",
+                "cidrBlock": "10.69.0.0/16",
+                "natGatewayPerAZ": false
+            }
+        },
+        "ec2": {
+            "defaults": {
+                "type": "EC2",
+                "security": "private",
+                "subnet": "private",
+                "azIndex": 2,
+                "debug": false,
+                "instanceType": "c7g.xlarge",
+                "instanceCount": 1,
+                "keyName": "aws-infra-forge",
+                "detailedMonitoring": false,
+                "ebsVolumeType": "gp3",
+                "ebsSize": 30,
+                "ebsThroughput": 125,
+                "ebsIops": 3000,
+                "ebsOptimized": false,
+                "enclaveEnabled": false,
+                "networkCardCount": 1,
+                "purchaseOption": "od",
+                "spotMaxPrice": "",
+                "capacityBlockId": "",
+                "enableEfa": false,
+                "enaSrdEnabled": false,
+                "osArch": "aarch64",
+                "osName": "amazon",
+                "osType": "linux",
+                "osVersion": "2023",
+                "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore",
+                "s3Location": "s3://aws-infra-forge",
+                "allowedPorts": "22@0.0.0.0/0;80,443,8443@10.69.0.0/16",
+                "allowedPortsIpv6": "22,80,443,8443@::/0",
+                "requireImdsv2": true,
+                "userDataScriptPath": "",
+                "userDataToken": "sysinfo"
+            },
+            "instances": [
+                {
+                    "id": "al2023benchc6i",
+                    "instanceType": "c6i.8xlarge",
+                    "ebsSize": 500,
+                    "ebsThroughput": 1000,
+                    "ebsIops": 16000,
+                    "userDataToken": "sysbench:modules=c2clat;pts:pts_tests=stream,byte,mbw,stress-ng;lmbench",
+                    "osArch": "x86_64"
+                },
+                {
+                    "id": "al2023benchc7g",
+                    "instanceType": "c7g.8xlarge",
+                    "userDataToken": "sysbench:modules=c2clat;pts:pts_tests=stream,byte,mbw,stress-ng;lmbench"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,99 @@
+{
+    "global": {
+        "stackName": "aws-infra-forge",
+        "dualStack": true,
+        "description": "Comprehensive ECS Anywhere Hybrid Deployment Solution: Enables seamless orchestration of containerized workloads across cloud (EC2) and on-premises (External) environments with unified CPU/GPU resource management. Supports weighted mixed instance type deployments (e.g., c7i.xlarge:50, g4dn.2xlarge:30, c6i.xlarge:20) for optimal cost-performance balance. Compatible with multiple ECS-optimized Linux AMI types: standard (x86_64), gpu (x86_64), arm (aarch64), and neuron. Task resource allocation follows industry standards with 1024 CPU units representing one vCPU. GPU-aware scheduling automatically creates appropriate task definitions based on GPU requirements (when gpuCount > 0). For cloud-based EC2 instances, supports configurable on-demand/spot instance mix (onDemandPercentage). Includes advanced monitoring through Container Insights (enhanced, enabled, disabled options). On-premises resources support multiple container network modes (bridge, nat, none, host), while cloud resources utilize awsvpc networking mode. Fargate integration available for serverless container execution (CPU workloads only)."
+    },
+    "enabledForges": [
+        "efs",
+        "ecs"
+    ],
+    "forges": {
+        "vpc": {
+            "defaults": {
+                "id": "vpc",
+                "type": "VPC",
+                "cidrBlock": "10.69.0.0/16",
+                "natGatewayPerAZ": false
+            }
+        },
+        "efs": {
+            "defaults": {
+                "type": "EFS",
+                "security": "isolated",
+                "subnet": "isolated"
+            },
+            "instances": [
+                {
+                    "id": "efs"
+                },
+                {
+                    "id": "efsdata"
+                }
+            ]
+        },
+        "lustre": {
+            "defaults": {
+                "type": "LUSTRE",
+                "security": "isolated",
+                "subnet": "isolated",
+                "azIndex": 1,
+                "deploymentType": "scratch2",
+                "dataCompressionType": "lz4",
+                "fileSystemVersion": "2.15",
+                "perUnitStorageThroughput": 250,
+                "removalPolicy": "destory",
+                "storageCapacityGiB": 1200
+            },
+            "instances": [
+                {
+                    "id": "fsx"
+                }
+            ]
+        },
+        "ecs": {
+            "defaults": {
+                "type": "ECS",
+                "instanceTypes": "c6i.xlarge:50,c6i.2xlarge:30,c6i.4xlarge:20",
+                "amiHardwareType": "standard",
+                "image": "nginx",
+                "cpuCount": 1024,
+                "gpuCount": 1,
+                "memoryMiB": 512,
+                "fargateCpuCount": 1024,
+                "fargateMemoryMiB": 2048,
+                "ebsVolumeType": "gp3",
+                "ebsSize": 30,
+                "ebsThroughput": 125,
+                "ebsIops": 3000,
+                "ebsOptimized": false,
+                "containerInsights": "enhanced",
+                "onDemandPercentage": 60,
+                "minCapacity": 0,
+                "maxCapacity": 5,
+                "networkMode": "bridge",
+                "security": "private",
+                "subnet": "private",
+                "dependsOn": "EFS:efs",
+                "policies": "service-role/AmazonEC2ContainerServiceforEC2Role,CloudWatchAgentServerPolicy,AmazonSSMManagedInstanceCore",
+                "healthCheck": "CMD-SHELL,curl -s http://localhost || exit 1",
+                "interval": 30,
+                "retries": 3,
+                "startPeriod": 120,
+                "timeout": 5,
+                "enableRestartPolicy": true,
+                "restartAttemptPeriod": 120,
+                "taskTypes": "fargate,ec2,external",
+                "taskRolePolicies": "AmazonS3FullAccess",
+                "executionRolePolicies": "service-role/AmazonECSTaskExecutionRolePolicy",
+                "userDataScriptPath": "",
+                "userDataToken": "nas"
+            },
+            "instances": [
+                {
+                    "id": "ecs"
+                }
+            ]
+        }
+    }
+}

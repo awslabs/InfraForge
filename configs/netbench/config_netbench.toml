@@ -1,0 +1,69 @@
+enabledForges = ["netbenchserver", "netbenchworker"]
+
+[global]
+stackName = "aws-infra-forge"
+dualStack = true
+description = "Comprehensive Network Performance Benchmarking Suite: Deploys a client-server testing environment with industry-standard network performance measurement tools. The solution includes multiple specialized benchmarking modules: Redis (database connection performance), Ethr (modern TCP/UDP/HTTP performance), iperf2 and iperf3 (throughput and jitter analysis), sockperf (socket performance with focus on latency), and netperf (comprehensive network performance metrics). All instances are automatically placed in a cluster placement group for minimal network latency between test nodes. The modular architecture allows selective activation of specific testing tools by specifying modules in the userDataToken parameter, with individual modules separated by semicolons (';'). Supports optional EFA (Elastic Fabric Adapter) and ENA-SRD (Elastic Network Adapter with Scalable Reliable Datagram) for high-performance computing network testing. Ideal for network stack optimization, instance type selection, cross-region performance analysis, and validating application network requirements."
+
+[forges]
+[forges.vpc]
+[forges.vpc.defaults]
+id = "vpc"
+type = "VPC"
+cidrBlock = "10.69.0.0/16"
+natGatewayPerAZ = false
+[forges.ec2]
+[forges.ec2.defaults]
+type = "EC2"
+security = "private"
+subnet = "private"
+azIndex = 2
+debug = false
+instanceType = "c7g.xlarge"
+instanceCount = 1
+keyName = "aws-infra-forge"
+detailedMonitoring = false
+ebsVolumeType = "gp3"
+ebsSize = 30
+ebsThroughput = 125
+ebsIops = 3000
+ebsOptimized = false
+enclaveEnabled = false
+networkCardCount = 1
+purchaseOption = "od"
+spotMaxPrice = ""
+capacityBlockId = ""
+enableEfa = false
+enaSrdEnabled = false
+osArch = "aarch64"
+osName = "amazon"
+osType = "linux"
+osVersion = "2023"
+policies = "AmazonS3FullAccess,AmazonSSMManagedInstanceCore"
+s3Location = "s3://aws-infra-forge"
+allowedPorts = "22@0.0.0.0/0;80,443,8443@10.69.0.0/16"
+allowedPortsIpv6 = "22,80,443,8443@::/0"
+requireImdsv2 = true
+userDataScriptPath = ""
+userDataToken = "sysinfo"
+
+[[forges.ec2.instances]]
+id = "netbenchserver"
+instanceType = "c7g.xlarge"
+instanceCount = 1
+placementGroup = "cpg"
+placementGroupStrategy = "CLUSTER"
+enableEfa = false
+enaSrdEnabled = false
+userDataToken = "netbench_server"
+
+[[forges.ec2.instances]]
+id = "netbenchworker"
+instanceType = "c7g.xlarge"
+instanceCount = 1
+placementGroup = "cpg"
+placementGroupStrategy = "CLUSTER"
+enableEfa = false
+enaSrdEnabled = false
+dependsOn = "EC2:netbenchserver"
+userDataToken = "netbench_client:modules=sockperf;iperf3"

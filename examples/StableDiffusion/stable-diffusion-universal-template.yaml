@@ -1,0 +1,556 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${TEST_NAME}
+  namespace: default
+  labels:
+    test-batch: "${BATCH_SIZE}"
+    test-steps: "${INFERENCE_STEPS}"
+    test-instance: "${INSTANCE_TYPE}"
+    test-precision: "${PRECISION}"
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      nodeSelector:
+        accelerator: nvidia
+        kubernetes.io/arch: amd64
+        node.kubernetes.io/instance-type: ${INSTANCE_TYPE}
+      containers:
+      - name: stable-diffusion
+        image: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+        command:
+          - /bin/bash
+          - -c
+          - |
+            set -e
+            echo "=== 通用Stable Diffusion测试配置 ==="
+            echo "Test Name: ${TEST_NAME}"
+            echo "Instance Type: ${INSTANCE_TYPE}"
+            echo "Model: ${MODEL_ID}"
+            echo "Batch Size: ${BATCH_SIZE}"
+            echo "Inference Steps: ${INFERENCE_STEPS}"
+            echo "Resolution: ${IMAGE_WIDTH}x${IMAGE_HEIGHT}"
+            echo "Precision: ${PRECISION}"
+            echo "Prompt: ${PROMPT}"
+            
+            echo "=== 环境信息 ==="
+            echo "Hostname: $(hostname)"
+            echo "PyTorch version: $(python -c 'import torch; print(torch.__version__)')"
+            echo "CUDA available: $(python -c 'import torch; print(torch.cuda.is_available())')"
+            if python -c 'import torch; exit(0 if torch.cuda.is_available() else 1)'; then
+                echo "GPU count: $(python -c 'import torch; print(torch.cuda.device_count())')"
+                echo "GPU name: $(python -c 'import torch; print(torch.cuda.get_device_name(0))')"
+                echo "GPU memory: $(python -c 'import torch; print(str(round(torch.cuda.get_device_properties(0).total_memory/1024**3, 1)) + "GB")')"
+                echo "CUDA version: $(python -c 'import torch; print(torch.version.cuda)')"
+            else
+                echo "CUDA not available!"
+                exit 1
+            fi
+            
+            echo "=== 检查存储挂载 ==="
+            echo "EFS mount point: /shared"
+            ls -la /shared/
+            mkdir -p /shared/stable-diffusion-outputs
+            echo "Created output directory: /shared/stable-diffusion-outputs"
+            
+            echo "=== 安装AI库 ==="
+            pip install --no-cache-dir \
+                diffusers \
+                transformers \
+                accelerate \
+                safetensors
+            
+            echo "=== 开始通用Stable Diffusion推理测试 ==="
+            python -c "
+            import torch
+            from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DPMSolverMultistepScheduler
+            import time
+            import os
+            import platform
+            import signal
+            import sys
+            from datetime import datetime
+            import json
+            
+            # 设置信号处理器，捕获系统级终止信号
+            def signal_handler(signum, frame):
+                if signum == 15:  # SIGTERM - 正常终止信号
+                    print(f'✅ 收到终止信号 {signum} (SIGTERM)，脚本主动取消任务')
+                    print(f'🔄 容器正常终止，测试已完成')
+                    # 不输出OOM的PERFORMANCE_SUMMARY，让之前的正常结果保持有效
+                elif signum == 9:  # SIGKILL - 强制终止，可能是OOM
+                    print(f'❌ 收到强制终止信号 {signum} (SIGKILL)，可能是OOM导致')
+                    print(f'🔄 容器因OOM被强制终止')
+                    print(f'PERFORMANCE_SUMMARY: {os.environ.get(\"TEST_NAME\", \"unknown\")},{os.environ.get(\"INSTANCE_TYPE\", \"unknown\")},{os.environ.get(\"BATCH_SIZE\", \"unknown\")},{os.environ.get(\"INFERENCE_STEPS\", \"unknown\")},\"N/A\",\"N/A\",OOM_SIGNAL')
+                elif signum == 11:  # SIGSEGV - 段错误，通常是GPU OOM导致
+                    print(f'❌ 收到段错误信号 {signum} (SIGSEGV)，可能是GPU内存不足导致')
+                    print(f'🔄 容器因段错误终止，通常是GPU OOM或内存访问违规')
+                    print(f'💡 建议: 使用float16精度、减少batch_size或选择更大的GPU实例')
+                    print(f'PERFORMANCE_SUMMARY: {os.environ.get(\"TEST_NAME\", \"unknown\")},{os.environ.get(\"INSTANCE_TYPE\", \"unknown\")},{os.environ.get(\"BATCH_SIZE\", \"unknown\")},{os.environ.get(\"INFERENCE_STEPS\", \"unknown\")},\"N/A\",\"N/A\",OOM_SIGSEGV')
+                else:
+                    print(f'❌ 收到系统信号 {signum}，可能是异常终止')
+                    print(f'🔄 容器因系统信号终止，标记为异常情况')
+                    print(f'PERFORMANCE_SUMMARY: {os.environ.get(\"TEST_NAME\", \"unknown\")},{os.environ.get(\"INSTANCE_TYPE\", \"unknown\")},{os.environ.get(\"BATCH_SIZE\", \"unknown\")},{os.environ.get(\"INFERENCE_STEPS\", \"unknown\")},\"N/A\",\"N/A\",SIGNAL_{signum}')
+                sys.stdout.flush()  # 立即刷新输出缓冲区
+                sys.exit(139)  # 使用139退出码表示段错误/OOM
+            
+            # 注册信号处理器
+            signal.signal(signal.SIGTERM, signal_handler)  # Kubernetes终止信号
+            signal.signal(signal.SIGINT, signal_handler)   # 中断信号
+            signal.signal(signal.SIGSEGV, signal_handler)  # 段错误信号 (GPU OOM常见)
+            try:
+                signal.signal(signal.SIGUSR1, signal_handler)  # 用户定义信号1
+                signal.signal(signal.SIGUSR2, signal_handler)  # 用户定义信号2
+            except:
+                pass  # 某些系统可能不支持这些信号
+            
+            # 从环境变量读取测试参数
+            test_name = os.environ.get('TEST_NAME', 'default')
+            model_id = os.environ.get('MODEL_ID', 'stabilityai/stable-diffusion-2-1')
+            instance_type = os.environ.get('INSTANCE_TYPE', 'unknown')
+            batch_size = int(os.environ.get('BATCH_SIZE', '1'))
+            inference_steps = int(os.environ.get('INFERENCE_STEPS', '20'))
+            prompt = os.environ.get('PROMPT', 'a photo of an astronaut riding a horse on mars')
+            width = int(os.environ.get('IMAGE_WIDTH', '1024'))
+            height = int(os.environ.get('IMAGE_HEIGHT', '1024'))
+            precision = os.environ.get('PRECISION', 'float32')
+            
+            print(f'Loading Stable Diffusion model: {model_id}')
+            print(f'Test configuration: {test_name}')
+            
+            # 检查是否为SDXL模型
+            is_sdxl = 'stable-diffusion-xl' in model_id.lower() or 'sdxl' in model_id.lower()
+            print(f'Is SDXL model: {is_sdxl}')
+            
+            # 记录模型加载时间
+            model_load_start = time.time()
+            
+            # 根据精度设置torch_dtype
+            if precision.lower() == 'float16' or precision.lower() == 'fp16':
+                torch_dtype = torch.float16
+                print('Using Float16 precision')
+            elif precision.lower() == 'bfloat16' or precision.lower() == 'bf16':
+                torch_dtype = torch.bfloat16
+                print('Using BFloat16 precision')
+            else:
+                torch_dtype = torch.float32
+                print('Using Float32 precision')
+            
+            # 加载模型 - 根据模型类型选择不同的Pipeline
+            if is_sdxl:
+                print('Loading SDXL model with StableDiffusionXLPipeline')
+                pipe = StableDiffusionXLPipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=torch_dtype,
+                    use_safetensors=True,
+                    variant='fp16' if torch_dtype == torch.float16 else None
+                )
+                # SDXL 使用默认的调度器通常效果更好
+                print(f'Using SDXL default scheduler: {pipe.scheduler.__class__.__name__}')
+            else:
+                print('Loading standard SD model with StableDiffusionPipeline')
+                pipe = StableDiffusionPipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=torch_dtype,
+                    safety_checker=None,
+                    requires_safety_checker=False
+                )
+                
+                # 使用DPM-Solver++调度器（适用于SD 2.x）
+                if 'stable-diffusion-2' in model_id or 'sd-2' in model_id:
+                    pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+                    print('Using DPM-Solver++ scheduler for SD 2.x')
+                else:
+                    print(f'Using default scheduler: {pipe.scheduler.__class__.__name__}')
+            
+            # 移动到GPU
+            pipe = pipe.to('cuda')
+            
+            model_load_time = time.time() - model_load_start
+            print(f'Model loaded in {model_load_time:.2f} seconds')
+            print(f'MODEL_LOAD_TIME: {model_load_time:.2f}')  # 便于脚本解析
+            print(f'Model device: {pipe.device}')
+            print(f'UNet device: {pipe.unet.device}')
+            print(f'Scheduler: {pipe.scheduler.__class__.__name__}')
+            
+            print(f'Starting inference test:')
+            print(f'  Test Name: {test_name}')
+            print(f'  Model: {model_id}')
+            print(f'  Instance Type: {instance_type}')
+            print(f'  Batch Size: {batch_size}')
+            print(f'  Inference Steps: {inference_steps}')
+            print(f'  Resolution: {width}x{height}')
+            print(f'  Precision: {precision} ({torch_dtype})')
+            print(f'  Prompt: {prompt}')
+            
+            # 开始推理
+            print('Starting inference...')
+            sys.stdout.flush()  # 立即刷新输出
+            inference_start = time.time()
+            
+            try:
+                with torch.no_grad():
+                    print(f'🚀 开始生成 {batch_size} 张图片，分辨率 {width}x{height}，{inference_steps} 步推理...')
+                    sys.stdout.flush()  # 立即刷新输出
+                    
+                    if is_sdxl:
+                        # SDXL 推理参数
+                        images = pipe(
+                            prompt,
+                            height=height,
+                            width=width,
+                            num_inference_steps=inference_steps,
+                            guidance_scale=7.5,
+                            num_images_per_prompt=batch_size,
+                            # SDXL 特有参数
+                            original_size=(width, height),
+                            target_size=(width, height)
+                        ).images
+                    else:
+                        # 标准 SD 推理参数
+                        images = pipe(
+                            prompt,
+                            height=height,
+                            width=width,
+                            num_inference_steps=inference_steps,
+                            guidance_scale=7.5,
+                            num_images_per_prompt=batch_size
+                        ).images
+                
+                inference_end = time.time()
+                inference_time = inference_end - inference_start
+                
+                print(f'✅ 推理完成！耗时 {inference_time:.2f} 秒')
+                sys.stdout.flush()  # 立即刷新输出
+                print(f'Inference completed in {inference_time:.2f} seconds')
+                print(f'Generated {len(images)} image(s)')
+                print(f'Average time per image: {inference_time/len(images):.2f} seconds')
+                
+            except torch.cuda.OutOfMemoryError as e:
+                print(f'❌ CUDA Out of Memory Error detected!')
+                print(f'Error details: {str(e)}')
+                print(f'GPU Memory Status:')
+                if torch.cuda.is_available():
+                    gpu_memory_allocated = torch.cuda.memory_allocated() / (1024**3)
+                    gpu_memory_cached = torch.cuda.memory_reserved() / (1024**3)
+                    gpu_memory_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                    print(f'  Allocated: {gpu_memory_allocated:.2f}GB')
+                    print(f'  Cached: {gpu_memory_cached:.2f}GB') 
+                    print(f'  Total: {gpu_memory_total:.2f}GB')
+                
+                print(f'⚠️  Skipping test due to insufficient GPU memory')
+                print(f'💡 Suggestions:')
+                print(f'   - Use float16 instead of float32')
+                print(f'   - Reduce batch_size to 1')
+                print(f'   - Use a smaller resolution')
+                print(f'   - Try a larger GPU instance type')
+                sys.stdout.flush()  # 立即刷新输出，让脚本能及时看到OOM信息
+                
+                # 创建 OOM 测试结果记录
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                output_dir = f'/shared/stable-diffusion-outputs/{timestamp}_{test_name}_OOM'
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # 保存 OOM 测试结果
+                oom_result = {
+                    'test_info': {
+                        'test_name': test_name,
+                        'timestamp': timestamp,
+                        'model': model_id,
+                        'model_type': 'SDXL' if is_sdxl else 'Standard SD',
+                        'instance_type': instance_type,
+                        'batch_size': batch_size,
+                        'inference_steps': inference_steps,
+                        'resolution': f'{width}x{height}',
+                        'prompt': prompt,
+                        'precision': precision,
+                        'torch_dtype': str(torch_dtype),
+                        'status': 'OOM_FAILED'
+                    },
+                    'error_info': {
+                        'error_type': 'CUDA_OUT_OF_MEMORY',
+                        'error_message': str(e),
+                        'model_load_time_seconds': round(model_load_time, 2) if 'model_load_time' in locals() else 'N/A'
+                    },
+                    'performance': {
+                        'model_load_time_seconds': round(model_load_time, 2) if 'model_load_time' in locals() else 'N/A',
+                        'inference_time_seconds': 'N/A',
+                        'time_per_image_seconds': 'N/A',
+                        'images_per_second': 'N/A',
+                        'images_generated': 0,
+                        'gpu_memory_allocated_gb': round(gpu_memory_allocated, 2) if torch.cuda.is_available() else 'N/A',
+                        'gpu_memory_cached_gb': round(gpu_memory_cached, 2) if torch.cuda.is_available() else 'N/A',
+                        'gpu_memory_total_gb': round(gpu_memory_total, 2) if torch.cuda.is_available() else 'N/A',
+                        'gpu_memory_status': 'OOM'
+                    },
+                    'system_info': {
+                        'python_version': platform.python_version(),
+                        'torch_version': torch.__version__,
+                        'cuda_available': torch.cuda.is_available(),
+                        'cuda_version': torch.version.cuda if torch.cuda.is_available() else 'N/A',
+                        'gpu_name': torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'
+                    }
+                }
+                
+                # 保存 JSON 结果
+                with open(f'{output_dir}/oom_test_result.json', 'w') as f:
+                    json.dump(oom_result, f, indent=2)
+                
+                # 保存文本报告
+                with open(f'{output_dir}/oom_test_report.txt', 'w') as f:
+                    f.write(f'Stable Diffusion OOM Test Report\\n')
+                    f.write(f'================================\\n\\n')
+                    f.write(f'Test Configuration:\\n')
+                    f.write(f'  Test Name: {test_name}\\n')
+                    f.write(f'  Timestamp: {timestamp}\\n')
+                    f.write(f'  Model: {model_id}\\n')
+                    model_type_str = 'SDXL' if is_sdxl else 'Standard SD'
+                    f.write(f'  Model Type: {model_type_str}\\n')
+                    f.write(f'  Instance Type: {instance_type}\\n')
+                    f.write(f'  Batch Size: {batch_size}\\n')
+                    f.write(f'  Inference Steps: {inference_steps}\\n')
+                    f.write(f'  Resolution: {width}x{height}\\n')
+                    f.write(f'  Precision: {precision} ({torch_dtype})\\n')
+                    f.write(f'  Prompt: {prompt}\\n\\n')
+                    
+                    f.write(f'Error Information:\\n')
+                    f.write(f'  Error Type: CUDA Out of Memory\\n')
+                    f.write(f'  Model Load Time: {round(model_load_time, 2) if \"model_load_time\" in locals() else \"N/A\"}s\\n')
+                    f.write(f'  Error Message: {str(e)}\\n\\n')
+                    
+                    f.write(f'GPU Memory Status at OOM:\\n')
+                    if torch.cuda.is_available():
+                        f.write(f'  GPU Memory Allocated: {gpu_memory_allocated:.2f}GB\\n')
+                        f.write(f'  GPU Memory Cached: {gpu_memory_cached:.2f}GB\\n')
+                        f.write(f'  GPU Memory Total: {gpu_memory_total:.2f}GB\\n')
+                        f.write(f'  GPU Memory Usage: {(gpu_memory_allocated/gpu_memory_total)*100:.1f}%\\n\\n')
+                    
+                    f.write(f'Recommendations:\\n')
+                    f.write(f'  - Use float16 instead of float32 precision\\n')
+                    f.write(f'  - Reduce batch_size to 1\\n')
+                    f.write(f'  - Use a smaller resolution (e.g., 896x896 for SDXL)\\n')
+                    f.write(f'  - Try a larger GPU instance type (e.g., g6e.xlarge)\\n')
+                    f.write(f'  - Set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True\\n')
+                
+                print(f'OOM test result saved to: {output_dir}')
+                
+                # 输出 OOM 标记到性能摘要
+                print(f'PERFORMANCE_SUMMARY: {test_name},{instance_type},{batch_size},{inference_steps},\"N/A\",\"N/A\",OOM')
+                sys.stdout.flush()  # 立即刷新输出缓冲区
+                
+                # 清理 GPU 内存
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                # 保持容器运行，让脚本有时间检测OOM
+                print(f'Test {test_name} skipped due to OOM - keeping container alive for detection')
+                print(f'🔄 容器将保持运行120秒，以便外部脚本检测OOM状态...')
+                sys.stdout.flush()  # 立即刷新输出，让脚本能及时看到OOM保持运行的信息
+                
+                # 保持容器运行120秒，让外部脚本有足够时间检测OOM
+                import time
+                for i in range(120):
+                    if i % 30 == 0:
+                        print(f'⏳ OOM容器保持运行中... 剩余 {120-i} 秒')
+                        sys.stdout.flush()  # 立即刷新输出，让脚本能实时看到OOM倒计时
+                    time.sleep(1)
+                
+                print(f'✅ OOM检测等待完成，容器即将退出')
+                sys.stdout.flush()  # 立即刷新输出
+                exit(0)
+                
+            except Exception as e:
+                print(f'❌ Unexpected error during inference!')
+                print(f'Error type: {type(e).__name__}')
+                print(f'Error details: {str(e)}')
+                
+                # 输出错误标记到性能摘要
+                print(f'PERFORMANCE_SUMMARY: {test_name},{instance_type},{batch_size},{inference_steps},ERROR,ERROR,ERROR')
+                sys.stdout.flush()  # 立即刷新输出缓冲区
+                
+                # 清理 GPU 内存
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                print(f'Test {test_name} failed - exiting with error')
+                exit(1)
+            print(f'Images per second: {len(images)/inference_time:.3f}')
+            
+            # 创建测试结果目录
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_dir = f'/shared/stable-diffusion-outputs/{timestamp}_{test_name}'
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # 保存图片
+            saved_files = []
+            for i, image in enumerate(images):
+                filename = f'{output_dir}/generated_image_{i}.png'
+                image.save(filename)
+                saved_files.append(filename)
+                print(f'Saved image to {filename}')
+            
+            # 收集性能指标
+            gpu_memory_allocated = torch.cuda.memory_allocated()/1024**3 if torch.cuda.is_available() else 0
+            gpu_memory_cached = torch.cuda.memory_reserved()/1024**3 if torch.cuda.is_available() else 0
+            gpu_memory_total = torch.cuda.get_device_properties(0).total_memory/1024**3 if torch.cuda.is_available() else 0
+            gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'No GPU'
+            
+            # 创建测试结果报告
+            test_results = {
+                'test_info': {
+                    'test_name': test_name,
+                    'timestamp': timestamp,
+                    'model': model_id,
+                    'model_type': 'SDXL' if is_sdxl else 'Standard SD',
+                    'instance_type': instance_type,
+                    'batch_size': batch_size,
+                    'inference_steps': inference_steps,
+                    'resolution': f'{width}x{height}',
+                    'prompt': prompt,
+                    'precision': precision,
+                    'torch_dtype': str(torch_dtype),
+                    'scheduler': pipe.scheduler.__class__.__name__
+                },
+                'environment': {
+                    'pytorch_version': torch.__version__,
+                    'cuda_version': torch.version.cuda,
+                    'gpu_name': gpu_name,
+                    'gpu_memory_total_gb': round(gpu_memory_total, 2),
+                    'hostname': os.environ.get('HOSTNAME', 'unknown')
+                },
+                'performance': {
+                    'model_load_time_seconds': round(model_load_time, 2),
+                    'inference_time_seconds': round(inference_time, 2),
+                    'time_per_image_seconds': round(inference_time/len(images), 2),
+                    'images_per_second': round(len(images)/inference_time, 3),
+                    'images_generated': len(images),
+                    'gpu_memory_allocated_gb': round(gpu_memory_allocated, 2),
+                    'gpu_memory_cached_gb': round(gpu_memory_cached, 2),
+                    'gpu_memory_utilization_percent': round((gpu_memory_allocated/gpu_memory_total)*100, 2) if gpu_memory_total > 0 else 0
+                },
+                'files': {
+                    'output_directory': output_dir,
+                    'saved_images': saved_files
+                }
+            }
+            
+            # 保存JSON格式的测试结果
+            results_file = f'{output_dir}/test_results.json'
+            with open(results_file, 'w') as f:
+                json.dump(test_results, f, indent=2)
+            
+            # 保存测试报告
+            report_file = f'{output_dir}/test_report.txt'
+            with open(report_file, 'w') as f:
+                f.write(f'Universal Stable Diffusion Test Report\\n')
+                f.write(f'=====================================\\n\\n')
+                f.write(f'Test Configuration:\\n')
+                f.write(f'  Test Name: {test_name}\\n')
+                f.write(f'  Timestamp: {timestamp}\\n')
+                f.write(f'  Model: {model_id}\\n')
+                model_type_str = 'SDXL' if is_sdxl else 'Standard SD'
+                f.write(f'  Model Type: {model_type_str}\\n')
+                f.write(f'  Instance Type: {instance_type}\\n')
+                f.write(f'  Batch Size: {batch_size}\\n')
+                f.write(f'  Inference Steps: {inference_steps}\\n')
+                f.write(f'  Resolution: {width}x{height}\\n')
+                f.write(f'  Precision: {precision} ({torch_dtype})\\n')
+                f.write(f'  Prompt: {prompt}\\n')
+                f.write(f'  Scheduler: {pipe.scheduler.__class__.__name__}\\n\\n')
+                
+                f.write(f'Environment:\\n')
+                f.write(f'  PyTorch Version: {torch.__version__}\\n')
+                f.write(f'  CUDA Version: {torch.version.cuda}\\n')
+                f.write(f'  GPU: {gpu_name}\\n')
+                f.write(f'  GPU Memory: {gpu_memory_total:.1f}GB\\n')
+                f.write(f'  Model Device: {pipe.device}\\n')
+                f.write(f'  UNet Device: {pipe.unet.device}\\n\\n')
+                
+                f.write(f'Performance Results:\\n')
+                f.write(f'  Model Load Time: {model_load_time:.2f}s\\n')
+                f.write(f'  Inference Time: {inference_time:.2f}s\\n')
+                f.write(f'  Time per Image: {inference_time/len(images):.2f}s\\n')
+                f.write(f'  Images per Second: {len(images)/inference_time:.3f}\\n')
+                f.write(f'  Images Generated: {len(images)}\\n')
+                f.write(f'  GPU Memory Used: {gpu_memory_allocated:.2f}GB ({(gpu_memory_allocated/gpu_memory_total)*100:.1f}%)\\n')
+                f.write(f'  GPU Memory Cached: {gpu_memory_cached:.2f}GB\\n\\n')
+                
+                f.write(f'Output Files:\\n')
+                for file in saved_files:
+                    f.write(f'  - {file}\\n')
+            
+            print(f'Test results saved to: {results_file}')
+            print(f'Test report saved to: {report_file}')
+            print(f'All outputs saved to: {output_dir}')
+            print(f'Universal test {test_name} completed successfully!')
+            
+            # 输出关键性能指标到标准输出（便于脚本解析）
+            print(f'PERFORMANCE_SUMMARY: {test_name},{instance_type},{batch_size},{inference_steps},{inference_time:.2f},{inference_time/len(images):.2f},{gpu_memory_allocated:.2f}')
+            sys.stdout.flush()  # 立即刷新输出缓冲区，确保脚本能及时检测到
+            
+            # 保持容器运行，让脚本有时间抓取日志和数据
+            print(f'✅ 测试完成，容器将保持运行180秒以便脚本抓取数据...')
+            print(f'🔄 脚本可以在此期间抓取日志、性能数据并主动取消任务')
+            sys.stdout.flush()  # 立即刷新输出，让脚本能看到这些提示信息
+            
+            # 保持容器运行180秒，让外部脚本有足够时间处理
+            import time
+            for i in range(180):
+                if i % 60 == 0:
+                    print(f'⏳ 任务完成，等待脚本处理... 剩余 {180-i} 秒')
+                    sys.stdout.flush()  # 立即刷新输出，让脚本能实时看到倒计时
+                time.sleep(1)
+            
+            print(f'✅ 等待时间结束，容器即将退出')
+            sys.stdout.flush()  # 立即刷新输出
+            "
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+            memory: "${MEMORY_LIMIT}"
+            cpu: "4"
+          requests:
+            nvidia.com/gpu: 1
+            memory: "${MEMORY_REQUEST}"
+            cpu: "2"
+        env:
+        - name: TEST_NAME
+          value: "${TEST_NAME}"
+        - name: MODEL_ID
+          value: "${MODEL_ID}"
+        - name: INSTANCE_TYPE
+          value: "${INSTANCE_TYPE}"
+        - name: BATCH_SIZE
+          value: "${BATCH_SIZE}"
+        - name: INFERENCE_STEPS
+          value: "${INFERENCE_STEPS}"
+        - name: PROMPT
+          value: "${PROMPT}"
+        - name: IMAGE_WIDTH
+          value: "${IMAGE_WIDTH}"
+        - name: IMAGE_HEIGHT
+          value: "${IMAGE_HEIGHT}"
+        - name: PRECISION
+          value: "${PRECISION}"
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0"
+        - name: PYTORCH_CUDA_ALLOC_CONF
+          value: "max_split_size_mb:128"
+        volumeMounts:
+        - name: efs-storage
+          mountPath: /shared
+        - name: tmp-storage
+          mountPath: /tmp
+      volumes:
+      - name: efs-storage
+        persistentVolumeClaim:
+          claimName: efs-sc-pvc
+      - name: tmp-storage
+        emptyDir:
+          sizeLimit: 8Gi
