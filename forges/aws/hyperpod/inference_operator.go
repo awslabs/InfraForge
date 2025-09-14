@@ -33,8 +33,8 @@ func updateInferenceOperator(hyperPodInstance *HyperPodInstanceConfig, cluster a
 }
 
 func createUpdateJob(hyperPodInstance *HyperPodInstanceConfig, cluster awssagemaker.CfnCluster, eksCluster awseks.Cluster) {
-	// 使用 kubectl set env 命令来更新环境变量
-	patchCommand := fmt.Sprintf(`kubectl set env deployment/hyperpod-inference-operator-controller-manager -n hyperpod-inference-system HYPERPOD_CLUSTER_ARN=%s`, 
+	// 使用 kubectl set env 命令来更新环境变量，然后强制重启 deployment 并删除所有 pods
+	patchCommand := fmt.Sprintf(`kubectl set env deployment/hyperpod-inference-operator-controller-manager -n hyperpod-inference-system HYPERPOD_CLUSTER_ARN=%s && kubectl rollout restart deployment/hyperpod-inference-operator-controller-manager -n hyperpod-inference-system && kubectl delete pod --all -n hyperpod-inference-system`, 
 		*cluster.AttrClusterArn())
 
 	// 创建 Job 来执行 kubectl patch 命令
