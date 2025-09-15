@@ -33,7 +33,7 @@ func deployMlflow(stack awscdk.Stack, cluster awseks.Cluster, version string) aw
 }
 
 // 部署 Legacy Training Operator 的函数
-func deployLegacyTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, version string) {
+func deployLegacyTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.KubernetesManifest {
 	// 创建 kubeflow 命名空间
 	kubeflowNamespaceMap := map[string]interface{}{
 		"apiVersion": "v1",
@@ -115,10 +115,11 @@ func deployLegacyTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 	trainingOperatorJob.Node().AddDependency(kubeflowNamespace)
 	
 	//fmt.Printf("已配置 Legacy Training Operator %s 安装\n", version)
+	return trainingOperatorJob
 }
 
 // 部署新版 Training Operator 的函数
-func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, version string) {
+func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.KubernetesManifest {
 	// 创建 kubeflow-system 命名空间
 	kubeflowSystemNamespaceMap := map[string]interface{}{
 		"apiVersion": "v1",
@@ -237,4 +238,5 @@ func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 	trainingRuntimesJob.Node().AddDependency(trainerManagerJob)
 	
 	//fmt.Printf("已配置新版 Training Operator %s 安装\n", version)
+	return trainingRuntimesJob
 }

@@ -176,10 +176,11 @@ func deployMountpointS3CsiDriver(stack awscdk.Stack, cluster awseks.Cluster, ver
 }
 
 // 部署 Mountpoint S3 CSI 驱动和 StorageClass
-func deployMountpointS3CsiDriverWithStorage(stack awscdk.Stack, cluster awseks.Cluster, eksInstance *EksInstanceConfig) error {
+func deployMountpointS3CsiDriverWithStorage(stack awscdk.Stack, cluster awseks.Cluster, eksInstance *EksInstanceConfig) awseks.HelmChart {
 	// 如果没有指定S3 bucket，不部署S3 CSI Driver
 	if eksInstance.S3BucketName == "" {
-		return fmt.Errorf("S3BucketName is required for Mountpoint S3 CSI Driver")
+		fmt.Printf("Warning: S3BucketName is required for Mountpoint S3 CSI Driver\n")
+		return nil
 	}
 	
 	// 部署 CSI 驱动
@@ -189,7 +190,8 @@ func deployMountpointS3CsiDriverWithStorage(stack awscdk.Stack, cluster awseks.C
 	if types.GetBoolValue(eksInstance.CreateStorageClass, false) {
 		// 检查必需的 S3 配置
 		if eksInstance.S3BucketName == "" {
-			return fmt.Errorf("s3BucketName is required when creating StorageClass for Mountpoint S3 CSI Driver")
+			fmt.Printf("Warning: s3BucketName is required when creating StorageClass for Mountpoint S3 CSI Driver\n")
+			return nil
 		}
 
 		// 通过bucket名称自动获取区域
@@ -306,39 +308,41 @@ func deployMountpointS3CsiDriverWithStorage(stack awscdk.Stack, cluster awseks.C
 		}
 	}
 
-	return nil
+	return s3CsiChart
 }
 
 // deployLustreCsiDriver, deployEfsCsiDriver
-func deployStorageCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) error {
+func deployStorageCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) []awseks.HelmChart {
     // 直接从 eksInstance.DependsOn 解析存储类型
     dependsOn := strings.ToUpper(eksInstance.DependsOn)
+    var charts []awseks.HelmChart
     
     // 检查是否包含 LUSTRE 前缀
     if strings.Contains(dependsOn, "LUSTRE:") {
-        err := deployLustreCsiDriver(stack, cluster, magicTokenStr, eksInstance)
-        if err != nil {
-            return fmt.Errorf("failed to deploy Lustre CSI driver: %v", err)
+        chart := deployLustreCsiDriver(stack, cluster, magicTokenStr, eksInstance)
+        if chart != nil {
+            charts = append(charts, chart)
         }
     }
     
     // 检查是否包含 EFS 前缀
     if strings.Contains(dependsOn, "EFS:") {
-        err := deployEfsCsiDriver(stack, cluster, magicTokenStr, eksInstance)
-        if err != nil {
-            return fmt.Errorf("failed to deploy EFS CSI driver: %v", err)
+        chart := deployEfsCsiDriver(stack, cluster, magicTokenStr, eksInstance)
+        if chart != nil {
+            charts = append(charts, chart)
         }
     }
     
-    return nil
+    return charts
 }
 
 // 部署 FSx Lustre CSI 驱动和 StorageClass
-func deployLustreCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) error {
+func deployLustreCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) awseks.HelmChart {
 	// 使用通用函数获取Lustre依赖
 	lustreProperties, err := dependency.ExtractDependencyProperties(magicTokenStr, "LUSTRE")
 	if err != nil {
-		return fmt.Errorf("failed to extract Lustre dependencies: %v", err)
+		fmt.Printf("Warning: failed to extract Lustre dependencies: %v\n", err)
+		return nil
 	}
 
 	// 提取Lustre配置信息
@@ -357,7 +361,8 @@ func deployLustreCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicToke
 	}
 
 	if lustreFileSystemId == "" {
-		return fmt.Errorf("Lustre file system ID not found")
+		fmt.Printf("Warning: Lustre file system ID not found\n")
+		return nil
 	}
 
 	// 创建 IAM 策略和服务账户
@@ -517,23 +522,25 @@ func deployLustreCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicToke
 		}
 	}
 
-	return nil
+	return csiChart
 }
 
 
 // 部署 EFS CSI 驱动和 StorageClass
-func deployEfsCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) error {
+func deployEfsCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) awseks.HelmChart {
 	// 使用通用函数获取EFS依赖
 	efsProperties, err := dependency.ExtractDependencyProperties(magicTokenStr, "EFS")
 	if err != nil {
-		return fmt.Errorf("failed to extract EFS dependencies: %v", err)
+		fmt.Printf("Warning: failed to extract EFS dependencies: %v\n", err)
+		return nil
 	}
 
 	// 提取EFS配置信息
 	efsFileSystemId, _ := efsProperties["fileSystemId"].(string)
 
 	if efsFileSystemId == "" {
-		return fmt.Errorf("EFS file system ID not found")
+		fmt.Printf("Warning: EFS file system ID not found\n")
+		return nil
 	}
 
 	// 创建 IAM 策略和服务账户
@@ -685,5 +692,5 @@ func deployEfsCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenSt
 		}
 	}
 
-	return nil
+	return csiChart
 }

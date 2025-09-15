@@ -47,7 +47,7 @@ type HyperPodInstanceConfig struct {
 	ExecutionRolePolicies    string `json:"executionRolePolicies,omitempty"`    // IAM policies for execution role
 	
 	// EKS Orchestrator (optional)
-	KubernetesVersion        string `json:"kubernetesVersion,omitempty"`        // Kubernetes version (e.g., "1.32")
+	EksVersion               string `json:"eksVersion,omitempty"`               // EKS version (e.g., "1.32")
 	EksClusterArn            string `json:"eksClusterArn,omitempty"`            // EKS cluster ARN for orchestration
 	DependsOn                string `json:"dependsOn,omitempty"`                // Dependency on EKS cluster ID
 	
@@ -441,8 +441,8 @@ func (h *HyperPodForge) MergeConfigs(defaults, instance config.InstanceConfig) c
 	if hyperPodInstance.ExecutionRolePolicies != "" {
 		merged.ExecutionRolePolicies = hyperPodInstance.ExecutionRolePolicies
 	}
-	if hyperPodInstance.KubernetesVersion != "" {
-		merged.KubernetesVersion = hyperPodInstance.KubernetesVersion
+	if hyperPodInstance.EksVersion != "" {
+		merged.EksVersion = hyperPodInstance.EksVersion
 	}
 	if hyperPodInstance.EksClusterArn != "" {
 		merged.EksClusterArn = hyperPodInstance.EksClusterArn

@@ -54,17 +54,8 @@ func deployCertManager(stack awscdk.Stack, cluster awseks.Cluster, version strin
 		version = "1.18.2"
 	}
 
-	// 首先创建 cert-manager 命名空间
-	certManagerNamespaceMap := map[string]interface{}{
-		"apiVersion": "v1",
-		"kind": "Namespace",
-		"metadata": map[string]interface{}{
-			"name": "cert-manager",
-		},
-	}
-	certManagerNamespace := cluster.AddManifest(jsii.String("cert-manager-namespace"), &certManagerNamespaceMap)
-
 	// 部署 Cert Manager Helm Chart（配置文件中不带v，但Helm Chart需要v前缀）
+	// 注意：namespace已经在调用处创建并添加了mastersRole依赖
 	helmVersion := "v" + version
 	certManagerChart := cluster.AddHelmChart(jsii.String("cm"), &awseks.HelmChartOptions{
 		Chart:      jsii.String("cert-manager"),
@@ -102,9 +93,6 @@ func deployCertManager(stack awscdk.Stack, cluster awseks.Cluster, version strin
 			},
 		},
 	})
-
-	// 确保 Helm Chart 在命名空间创建后部署
-	certManagerChart.Node().AddDependency(certManagerNamespace)
 
 	return certManagerChart
 }
@@ -348,7 +336,7 @@ func deployAwsLoadBalancerController(stack awscdk.Stack, cluster awseks.Cluster,
 }
 
 // deployPodIdentityAgent 部署 EKS Pod Identity Agent
-func deployPodIdentityAgent(stack awscdk.Stack, cluster awseks.Cluster, version string) {
+func deployPodIdentityAgent(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.KubernetesManifest {
 	// 如果未指定版本，使用 latest
 	if version == "" {
 		version = "latest"
@@ -496,5 +484,5 @@ func deployPodIdentityAgent(stack awscdk.Stack, cluster awseks.Cluster, version 
 		},
 	}
 
-	cluster.AddManifest(jsii.String("pod-identity-agent"), &podIdentityAgentManifest)
+	return cluster.AddManifest(jsii.String("pod-identity-agent"), &podIdentityAgentManifest)
 }

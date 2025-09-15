@@ -201,10 +201,11 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	// aws-infra-forge.eksConfigCommandDB09280A = aws eks update-kubeconfig --name eks --region ap-southeast-1 --role-arn arn:aws:iam::xxxxxxxxxxxx:role/aws-infra-forge-eksmastersroleXXXXXXXX-XXXXXXXXXXXX
 	// aws-infra-forge.eksGetTokenCommand8952195F = aws eks get-token --cluster-name eks --region ap-southeast-1 --role-arn arn:aws:iam::xxxxxxxxxxxx:role/aws-infra-forge-eksmastersroleXXXXXXXX-XXXXXXXXXXXX
 	mastersRole := awsiam.NewRole(ctx.Stack, jsii.String(fmt.Sprintf("%s-masters-role", eksInstance.GetID())), &awsiam.RoleProps{
-		AssumedBy: awsiam.NewAccountPrincipal(ctx.Stack.Account()), // 直接使用 ctx.Stack.Account()
-		// 可选：添加描述
+		AssumedBy: awsiam.NewCompositePrincipal(
+			awsiam.NewAccountPrincipal(ctx.Stack.Account()),
+			awsiam.NewServicePrincipal(jsii.String("lambda.amazonaws.com"), nil), // 添加Lambda服务
+		),
 		Description: jsii.String("Role for EKS cluster administrators"),
-		// 可选：添加管理策略
 		ManagedPolicies: &[]awsiam.IManagedPolicy{
 			awsiam.ManagedPolicy_FromAwsManagedPolicyName(jsii.String("AmazonEKSClusterPolicy")),
 		},
@@ -317,9 +318,19 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		}
 	}
 
+	// 给 aws-auth ConfigMap 添加 mastersRole 依赖，确保删除顺序正确
+	awsAuthConfigMap := cluster.AwsAuth()
+	if awsAuthConfigMap != nil {
+		awsAuthConfigMap.Node().AddDependency(mastersRole)
+	}
+
 	// 1. 首先部署 Pod Identity Agent（如果指定了版本）- 底层身份认证组件
 	if eksInstance.PodIdentityAgentVersion != "" {
-		deployPodIdentityAgent(ctx.Stack, cluster, eksInstance.PodIdentityAgentVersion)
+		podIdentityAgent := deployPodIdentityAgent(ctx.Stack, cluster, eksInstance.PodIdentityAgentVersion)
+		if podIdentityAgent != nil {
+			// 依赖 aws-auth ConfigMap 而不是直接依赖 mastersRole
+			podIdentityAgent.Node().AddDependency(awsAuthConfigMap)
+		}
 	}
 
 	// 创建 Karpenter IAM 资源
@@ -332,6 +343,9 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		ControllerRoleArn: *karpenterIam.ControllerRole.RoleArn(),
 		KarpenterVersion: eksInstance.KarpenterVersion,
 	})
+	if karpenterChart != nil {
+		karpenterChart.Node().AddDependency(awsAuthConfigMap)
+	}
 
 	// 创建 Karpenter NodePool 和 EC2NodeClass
 	nodePools := createKarpenterNodePool(ctx.Stack, "KarpenterNodePool", &KarpenterNodePoolProps{
@@ -377,22 +391,32 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	})
 
 	// 确保 Karpenter 在集群和角色创建后部署
-	karpenterChart.Node().AddDependency(cluster)
-	karpenterChart.Node().AddDependency(karpenterIam.ControllerRole)
+	if karpenterChart != nil {
+		karpenterChart.Node().AddDependency(cluster)
+		karpenterChart.Node().AddDependency(karpenterIam.ControllerRole)
+	}
 
 	// 确保所有 NodePool 在 Karpenter 部署后创建
 	for _, nodePool := range nodePools {
-		nodePool.Node().AddDependency(karpenterChart)
+		if karpenterChart != nil {
+			nodePool.Node().AddDependency(karpenterChart)
+		}
 	}
 
 	// 部署 EFA Device Plugin（只依赖集群，与Karpenter并行）
 	efaChart := deployEfaDevicePlugin(ctx.Stack, cluster, eksInstance.EfaPluginVersion)
-	efaChart.Node().AddDependency(cluster)
+	if efaChart != nil {
+		efaChart.Node().AddDependency(cluster)
+		efaChart.Node().AddDependency(awsAuthConfigMap)
+	}
 
 	// 如果启用了 GPU 节点池，部署 NVIDIA Device Plugin
 	if strings.Contains(eksInstance.KarpenterNodePools, "gpu") || strings.Contains(eksInstance.KarpenterNodePools, "nvidia") {
 		nvidiaPlugin := deployNvidiaDevicePlugin(ctx.Stack, cluster, eksInstance.NvidiaPluginVersion)
-		nvidiaPlugin.Node().AddDependency(cluster)
+		if nvidiaPlugin != nil {
+			nvidiaPlugin.Node().AddDependency(cluster)
+			nvidiaPlugin.Node().AddDependency(awsAuthConfigMap)
+		}
 	}
 
 	// 部署额外的 Kubernetes 组件（避免webhook冲突的简化依赖关系）
@@ -409,24 +433,46 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	var awsLbControllerChart awseks.HelmChart
 	if eksInstance.AwsLoadBalancerControllerVersion != "" {
 		awsLbControllerChart = deployAwsLoadBalancerController(ctx.Stack, cluster, eksInstance.AwsLoadBalancerControllerVersion)
+		if awsLbControllerChart != nil {
+			awsLbControllerChart.Node().AddDependency(awsAuthConfigMap)
+		}
 	}
 
 	// 3. 部署 Cert Manager（如果指定了版本）
 	// 直接依赖 ALB Controller，通过 ALB Controller 的配置优化来减少 webhook 冲突
 	var certManagerChart awseks.HelmChart
 	if eksInstance.CertManagerVersion != "" {
+		// 先创建cert-manager namespace并添加mastersRole依赖
+		certManagerNamespace := cluster.AddManifest(jsii.String("cert-manager-namespace-with-deps"), &map[string]interface{}{
+			"apiVersion": "v1",
+			"kind": "Namespace",
+			"metadata": map[string]interface{}{
+				"name": "cert-manager",
+			},
+		})
+		if certManagerNamespace != nil {
+			certManagerNamespace.Node().AddDependency(awsAuthConfigMap)
+		}
+		
 		certManagerChart = deployCertManager(ctx.Stack, cluster, eksInstance.CertManagerVersion)
+		if certManagerChart != nil {
+			certManagerChart.Node().AddDependency(awsAuthConfigMap)
+			// 确保chart在我们创建的namespace之后部署
+			if certManagerNamespace != nil {
+				certManagerChart.Node().AddDependency(certManagerNamespace)
+			}
+		}
 		// 如果安装了 AWS Load Balancer Controller，确保 cert-manager 在其之后部署
-		if eksInstance.AwsLoadBalancerControllerVersion != "" {
+		if eksInstance.AwsLoadBalancerControllerVersion != "" && awsLbControllerChart != nil && certManagerChart != nil {
 			certManagerChart.Node().AddDependency(awsLbControllerChart)
 		}
 	}
 
 	// 部署 Mountpoint S3 CSI Driver（如果指定了版本）
 	if eksInstance.MountpointS3CsiDriverVersion != "" {
-		err := deployMountpointS3CsiDriverWithStorage(ctx.Stack, cluster, eksInstance)
-		if err != nil {
-			return fmt.Errorf("failed to deploy Mountpoint S3 CSI Driver: %v", err)
+		s3CsiChart := deployMountpointS3CsiDriverWithStorage(ctx.Stack, cluster, eksInstance)
+		if s3CsiChart != nil {
+			s3CsiChart.Node().AddDependency(awsAuthConfigMap)
 		}
 	}
 
@@ -435,11 +481,14 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	var metricsServerChart awseks.HelmChart
 	if eksInstance.MetricsServerVersion != "" {
 		metricsServerChart = deployMetricsServer(ctx.Stack, cluster, eksInstance.MetricsServerVersion, eksInstance.CertManagerVersion != "")
+		if metricsServerChart != nil {
+			metricsServerChart.Node().AddDependency(awsAuthConfigMap)
+		}
 		// 如果安装了 cert-manager，确保 metrics-server 在 cert-manager 之后部署
 		// 保持简单的依赖链：ALB Controller → Cert Manager → Metrics Server
-		if eksInstance.CertManagerVersion != "" {
+		if eksInstance.CertManagerVersion != "" && certManagerChart != nil && metricsServerChart != nil {
 			metricsServerChart.Node().AddDependency(certManagerChart)
-		} else if eksInstance.AwsLoadBalancerControllerVersion != "" {
+		} else if eksInstance.AwsLoadBalancerControllerVersion != "" && awsLbControllerChart != nil && metricsServerChart != nil {
 			// 如果没有 Cert Manager 但有 ALB Controller，直接依赖 ALB Controller
 			metricsServerChart.Node().AddDependency(awsLbControllerChart)
 		}
@@ -456,10 +505,16 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		// 根据配置选择部署方式
 		if types.GetBoolValue(eksInstance.UseModernTrainingOperator, false) {
 			// 部署新版 Training Operator，传入版本参数
-			deployModernTrainingOperator(ctx.Stack, cluster, trainingOperatorVersion)
+			modernTrainingOp := deployModernTrainingOperator(ctx.Stack, cluster, trainingOperatorVersion)
+			if modernTrainingOp != nil {
+				modernTrainingOp.Node().AddDependency(awsAuthConfigMap)
+			}
 		} else {
 			// 部署 Legacy Training Operator
-			deployLegacyTrainingOperator(ctx.Stack, cluster, trainingOperatorVersion)
+			legacyTrainingOp := deployLegacyTrainingOperator(ctx.Stack, cluster, trainingOperatorVersion)
+			if legacyTrainingOp != nil {
+				legacyTrainingOp.Node().AddDependency(awsAuthConfigMap)
+			}
 		}
 	}
 
@@ -472,9 +527,12 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		} else {
 			// 如果需要部署 CSI 驱动
 			if types.GetBoolValue(eksInstance.DeployCsiDriver, false) {
-				err := deployStorageCsiDriver(ctx.Stack, cluster, magicToken, eksInstance)
-				if err != nil {
-					fmt.Printf("Error deploying storage CSI driver: %v\n", err)
+				csiCharts := deployStorageCsiDriver(ctx.Stack, cluster, magicToken, eksInstance)
+				// 为所有 CSI Charts 添加 mastersRole 依赖
+				for _, chart := range csiCharts {
+					if chart != nil {
+						chart.Node().AddDependency(awsAuthConfigMap)
+					}
 				}
 			}
 		}
@@ -482,21 +540,34 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 
 	// 部署 MLflow（如果指定了版本）
 	if eksInstance.MlflowVersion != "" {
-		deployMlflow(ctx.Stack, cluster, eksInstance.MlflowVersion)
+		mlflowChart := deployMlflow(ctx.Stack, cluster, eksInstance.MlflowVersion)
+		if mlflowChart != nil {
+			mlflowChart.Node().AddDependency(awsAuthConfigMap)
+		}
 	}
 
 	// 如果启用 HyperPod 组件
 	var hyperPodJob awseks.KubernetesManifest
 	if types.GetBoolValue(eksInstance.EnableHyperPodComponents, false) {
-		hyperPodJob = deployHyperPodComponents(ctx.Stack, cluster, eksInstance)
+		hyperPodJob = deployHyperPodComponents(ctx.Stack, cluster, eksInstance, mastersRole)
 		
 		// 确保 HyperPod 在系统组件之后部署
-		if eksInstance.MetricsServerVersion != "" && metricsServerChart != nil {
+		if eksInstance.MetricsServerVersion != "" && metricsServerChart != nil && hyperPodJob != nil {
 			hyperPodJob.Node().AddDependency(metricsServerChart)
+		}
+		if eksInstance.CertManagerVersion != "" && certManagerChart != nil && hyperPodJob != nil {
+			hyperPodJob.Node().AddDependency(certManagerChart)
+		}
+		// 添加 awsAuthConfigMap 依赖确保权限可用
+		if hyperPodJob != nil {
+			hyperPodJob.Node().AddDependency(awsAuthConfigMap)
 		}
 		
 		// 部署 AWS Neuron Device Plugin (HyperPod 必需)
-		deployNeuronDevicePlugin(ctx.Stack, cluster, eksInstance.NeuronDevicePluginVersion)
+		neuronPlugin := deployNeuronDevicePlugin(ctx.Stack, cluster, eksInstance.NeuronDevicePluginVersion)
+		if neuronPlugin != nil {
+			neuronPlugin.Node().AddDependency(awsAuthConfigMap)
+		}
 	}
 
 	e.eks = cluster

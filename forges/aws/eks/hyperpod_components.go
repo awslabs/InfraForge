@@ -9,11 +9,12 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awseks"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3"
+	eksutils "github.com/awslabs/InfraForge/core/utils/eks"
 	"github.com/aws/jsii-runtime-go"
 )
 
-// 部署 HyperPod 专用组件 - 简化的 Job 方式
-func deployHyperPodComponents(stack awscdk.Stack, cluster awseks.Cluster, eksInstance *EksInstanceConfig) awseks.KubernetesManifest {
+// 部署 HyperPod 专用组件 - 支持安装和清理
+func deployHyperPodComponents(stack awscdk.Stack, cluster awseks.Cluster, eksInstance *EksInstanceConfig, mastersRole awsiam.Role) awseks.KubernetesManifest {
 	// 创建支持 IRSA 的 IAM 角色
 	issuerUrl := cluster.OpenIdConnectProvider().OpenIdConnectProviderIssuer()
 	
@@ -128,6 +129,7 @@ func deployHyperPodComponents(stack awscdk.Stack, cluster awseks.Cluster, eksIns
 	s3CsiRoleArn := fmt.Sprintf("arn:%s:iam::%s:role/s3-csi-driver-sa-role", *stack.Partition(), *stack.Account())
 
 	// 1. 创建简单的 Job 来安装 HyperPod 组件
+	// 创建安装Job
 	hyperPodJob := cluster.AddManifest(jsii.String("hyperpod-installer-job"), &map[string]interface{}{
 		"apiVersion": "batch/v1",
 		"kind":       "Job",
@@ -197,6 +199,37 @@ func deployHyperPodComponents(stack awscdk.Stack, cluster awseks.Cluster, eksIns
 			},
 		},
 	})
-	
+
+	// 使用kubectl executor清理HyperPod组件
+	hyperPodCleanup := eksutils.CreateKubectlExecutor(stack, "HyperPodCleanup", &eksutils.KubectlExecutorProps{
+		Cluster:     cluster,
+		EksVersion:  eksInstance.EksVersion,
+		OnDeleteCmds: []string{
+			// 清理 HyperPod 相关 namespace 中的资源
+			"kubectl delete all --all -n hyperpod-inference-system --ignore-not-found=true --timeout=60s || true",
+			"kubectl delete all --all -n aws-hyperpod --ignore-not-found=true --timeout=60s || true",
+			// 清理 kube-system 中的 KEDA 组件（HyperPod 依赖）
+			"kubectl delete deployment keda-admission-webhooks keda-operator keda-operator-metrics-apiserver -n kube-system --ignore-not-found=true --timeout=60s || true",
+			"kubectl delete deployment,service,configmap -n kube-system -l app.kubernetes.io/name=hyperpod --ignore-not-found=true --timeout=60s || true",
+			// 清理 KEDA API services（解决 stale GroupVersion discovery 问题）
+			"kubectl delete apiservice v1beta1.external.metrics.k8s.io --ignore-not-found=true --timeout=30s || true",
+			"kubectl delete apiservice v1beta1.custom.metrics.k8s.io --ignore-not-found=true --timeout=30s || true",
+			// 清理 HyperPod 和 KEDA 的 CRDs 和集群级资源
+			"kubectl delete crd -l app.kubernetes.io/name=hyperpod-inference-operator --ignore-not-found=true --timeout=60s || true",
+			"kubectl delete crd -l app.kubernetes.io/name=keda --ignore-not-found=true --timeout=60s || true",
+			"kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/name=hyperpod-inference-operator --ignore-not-found=true --timeout=60s || true", 
+			"kubectl delete clusterrole,clusterrolebinding -l app.kubernetes.io/name=keda --ignore-not-found=true --timeout=60s || true",
+			// 强制删除 namespace（不等待，让 CloudFormation 处理）
+			"kubectl delete namespace hyperpod-inference-system aws-hyperpod --ignore-not-found=true --wait=false || true",
+			// 清理kube-system中的HyperPod相关资源
+			"kubectl delete deployment -n kube-system -l app.kubernetes.io/name=hyperpod --ignore-not-found=true --timeout=60s || true",
+			"kubectl delete service -n kube-system -l app.kubernetes.io/name=hyperpod --ignore-not-found=true --timeout=60s || true",
+			"kubectl delete configmap -n kube-system -l app.kubernetes.io/name=hyperpod --ignore-not-found=true --timeout=60s || true",
+		},
+	})
+
+	// 确保清理在安装Job之后创建，删除时先执行
+	hyperPodCleanup.Node().AddDependency(hyperPodJob)
+
 	return hyperPodJob
 }
