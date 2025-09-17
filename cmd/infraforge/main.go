@@ -4,6 +4,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	
@@ -14,8 +15,25 @@ import (
 	"github.com/aws/jsii-runtime-go"
 )
 
+var (
+	Version   = "dev"
+	BuildDate = "unknown"
+	GitCommit = "unknown"
+)
+
 func main() {
 	defer jsii.Close()
+
+	// Parse command line flags
+	var showVersion = flag.Bool("version", false, "Show version information")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("InfraForge %s\n", Version)
+		fmt.Printf("Build Date: %s\n", BuildDate)
+		fmt.Printf("Git Commit: %s\n", GitCommit)
+		os.Exit(0)
+	}
 
 	/*
 	// 防止 CDK 重复执行，虽可以提速，但有可能导致资源被清理
