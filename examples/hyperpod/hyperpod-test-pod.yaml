@@ -1,0 +1,78 @@
+# HyperPod GPU Test Pod Example
+# This pod demonstrates how to schedule workloads on HyperPod nodes with Karpenter autoscaling
+# 
+# Prerequisites:
+# 1. HyperPod cluster with enableKarpenterScaling: true
+# 2. EKS cluster with S3 and Lustre storage configured
+#
+# Usage:
+#   kubectl apply -f hyperpod-test-pod.yaml
+#   kubectl logs hyperpod-gpu-workload -f
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hyperpod-gpu-workload
+  labels:
+    app: hyperpod-test
+spec:
+  # Schedule on HyperPod nodes via Karpenter
+  nodeSelector:
+    karpenter.sh/nodepool: karpenter-hyperpod
+  
+  # Tolerate GPU node taints
+  tolerations:
+  - key: nvidia.com/gpu
+    operator: Equal
+    value: "true"
+    effect: NoSchedule
+  
+  containers:
+  - name: gpu-workload
+    image: amazonlinux:2023
+    command: ["/bin/bash"]
+    args: 
+    - "-c"
+    - |
+      echo "=== HyperPod GPU Workload Started ==="
+      echo "Node: $(hostname)"
+      echo "OS Info: $(cat /etc/os-release | grep PRETTY_NAME)"
+      echo "CPU Info: $(nproc) cores"
+      echo "Memory Info: $(free -h | grep Mem)"
+      echo "GPU Info:"
+      nvidia-smi || echo "nvidia-smi not available"
+      echo "S3 Storage:"
+      ls -la /s3 || echo "S3 not mounted"
+      echo "Lustre Storage:"
+      ls -la /lustre || echo "Lustre not mounted"
+      echo "=== Sleeping for 1 hour ==="
+      sleep 3600
+    
+    resources:
+      requests:
+        nvidia.com/gpu: 1
+        cpu: 2
+        memory: 4Gi
+      limits:
+        nvidia.com/gpu: 1
+        cpu: 2
+        memory: 4Gi
+    
+    # Mount shared storage
+    volumeMounts:
+    - name: s3-storage
+      mountPath: /s3
+      readOnly: false
+    - name: lustre-storage
+      mountPath: /lustre
+      readOnly: false
+  
+  volumes:
+  - name: s3-storage
+    persistentVolumeClaim:
+      claimName: s3-sc-pvc
+  - name: lustre-storage
+    persistentVolumeClaim:
+      claimName: fsx-sc-pvc
+  
+  restartPolicy: Never

@@ -93,10 +93,13 @@ func deployLegacyTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 					"containers": []map[string]interface{}{
 						{
 							"name": "kubectl",
-							"image": "docker.io/bitnami/kubectl:latest",
+							"image": "public.ecr.aws/amazonlinux/amazonlinux:latest",
 							"command": []string{
 								"sh",
 								"-c",
+								"dnf install -y git && " +
+								"curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')/kubectl\" && " +
+								"chmod +x kubectl && mv kubectl /usr/local/bin/ && " +
 								applyCommand,
 							},
 						},
@@ -180,10 +183,12 @@ func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 					"containers": []map[string]interface{}{
 						{
 							"name": "kubectl",
-							"image": "docker.io/bitnami/kubectl:latest",
+							"image": "public.ecr.aws/amazonlinux/amazonlinux:latest",
 							"command": []string{
 								"sh",
 								"-c",
+								"curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')/kubectl\" && " +
+								"chmod +x kubectl && mv kubectl /usr/local/bin/ && " +
 								managerCommand,
 							},
 						},
@@ -213,10 +218,12 @@ func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 					"containers": []map[string]interface{}{
 						{
 							"name": "kubectl",
-							"image": "docker.io/bitnami/kubectl:latest",
+							"image": "public.ecr.aws/amazonlinux/amazonlinux:latest",
 							"command": []string{
 								"sh",
 								"-c",
+								"curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')/kubectl\" && " +
+								"chmod +x kubectl && mv kubectl /usr/local/bin/ && " +
 								runtimesCommand,
 							},
 						},

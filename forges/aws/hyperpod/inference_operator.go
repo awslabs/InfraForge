@@ -53,8 +53,11 @@ func createUpdateJob(hyperPodInstance *HyperPodInstanceConfig, cluster awssagema
 					"containers": []map[string]interface{}{
 						{
 							"name":    "kubectl",
-							"image":   "bitnami/kubectl:latest",
-							"command": []string{"/bin/sh", "-c", patchCommand},
+							"image":   "public.ecr.aws/amazonlinux/amazonlinux:latest",
+							"command": []string{"/bin/sh", "-c", 
+								"curl -LO \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')/kubectl\" && " +
+								"chmod +x kubectl && mv kubectl /usr/local/bin/ && " +
+								patchCommand},
 						},
 					},
 				},

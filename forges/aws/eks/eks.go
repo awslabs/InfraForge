@@ -115,7 +115,7 @@ type EksInstanceConfig struct {
 }
 
 type EksForge struct {
-	eks      awseks.Cluster
+	eks        awseks.Cluster
 	properties map[string]interface{}
 }
 func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
@@ -343,6 +343,7 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		ControllerRoleArn: *karpenterIam.ControllerRole.RoleArn(),
 		KarpenterVersion: eksInstance.KarpenterVersion,
 	})
+	
 	if karpenterChart != nil {
 		karpenterChart.Node().AddDependency(awsAuthConfigMap)
 	}
@@ -584,6 +585,11 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	// 保存 HyperPod 组件用于依赖
 	if hyperPodJob != nil {
 		e.properties["hyperPodJob"] = hyperPodJob
+	}
+	
+	// 保存 Karpenter Helm chart 用于依赖
+	if karpenterChart != nil {
+		e.properties["karpenterChart"] = karpenterChart
 	}
 	
 	return e

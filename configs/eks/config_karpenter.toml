@@ -51,7 +51,7 @@ maxSize = 5
 diskSize = 30
 eksVersion = "1.33"
 adminUsers = ""
-controlPlaneAzIndices = "1,2,3"
+controlPlaneAzIndices = "1,2"
 commentNvidiaPluginVersion = "=== https://catalog.ngc.nvidia.com/orgs/nvidia/containers/k8s-device-plugin/tags ==="
 nvidiaPluginVersion = "0.17.3"
 commentNeuronDevicePluginVersion = "=== https://gallery.ecr.aws/neuron/neuron-device-plugin ==="

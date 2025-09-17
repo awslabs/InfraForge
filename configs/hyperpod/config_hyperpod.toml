@@ -51,7 +51,7 @@ maxSize = 5
 diskSize = 30
 eksVersion = "1.33"
 adminUsers = ""
-controlPlaneAzIndices = "1,2,3"
+controlPlaneAzIndices = "1,2"
 commentNvidiaPluginVersion = "=== https://catalog.ngc.nvidia.com/orgs/nvidia/containers/k8s-device-plugin/tags ==="
 nvidiaPluginVersion = "0.17.3"
 commentNeuronDevicePluginVersion = "=== https://gallery.ecr.aws/neuron/neuron-device-plugin ==="
@@ -130,7 +130,7 @@ createDefaultPVC = true
 type = "HYPERPOD"
 security = "private"
 subnet = "private"
-clusterName = "hyperpod-eks-cluster"
+clusterName = "hyperpod-eks"
 nodeProvisioningMode = "Continuous"
 nodeRecovery = "Automatic"
 instanceGroupName = "gpu"
@@ -144,6 +144,7 @@ createLustre = true
 lustreStorageCapacity = 1200
 lustreThroughput = 250
 useDefaultLifecycle = true
+enableKarpenterScaling = true
 onCreateScript = "on_create.sh"
 sourceS3Uri = "s3://aws-infra-forge/lifecycle/"
 executionRolePolicies = "AmazonSageMakerFullAccess,AmazonEKSClusterPolicy,AmazonEKSWorkerNodePolicy,AmazonEKS_CNI_Policy,AmazonEC2ContainerRegistryReadOnly,AmazonSSMManagedInstanceCore,AmazonS3FullAccess"

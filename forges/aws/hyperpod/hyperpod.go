@@ -9,6 +9,7 @@ import (
 	"github.com/awslabs/InfraForge/core/config"
 	"github.com/awslabs/InfraForge/core/dependency"
 	"github.com/awslabs/InfraForge/core/interfaces"
+	"github.com/awslabs/InfraForge/core/partition"
 	"github.com/awslabs/InfraForge/core/utils/aws"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
@@ -54,6 +55,7 @@ type HyperPodInstanceConfig struct {
 	// AutoScaling Configuration
 	AutoScalingMode          string `json:"autoScalingMode,omitempty"`          // Enable/Disable
 	AutoScalerType           string `json:"autoScalerType,omitempty"`           // Karpenter
+	EnableKarpenterScaling   *bool  `json:"enableKarpenterScaling,omitempty"`   // Enable Karpenter autoscaling
 	
 	// Cluster Role
 	ClusterRole              string `json:"clusterRole,omitempty"`              // IAM role for cluster operations
@@ -237,10 +239,70 @@ func (h *HyperPodForge) createHyperPodCluster(hyperPodInstance *HyperPodInstance
 	}
 
 	// Create cluster properties
+	// Create cluster role for autoscaling (separate from execution role)
+	var clusterRole awsiam.IRole
+	if orchestrator != nil {
+		// Only create cluster role for EKS orchestrator with autoscaling
+		clusterRoleId := fmt.Sprintf("%s-cluster-role", hyperPodInstance.GetID())
+		
+		// Create custom policy for HyperPod Karpenter autoscaling
+		policyDocument := map[string]interface{}{
+			"Version": "2012-10-17",
+			"Statement": []map[string]interface{}{
+				{
+					"Effect": "Allow",
+					"Action": []string{
+						"sagemaker:BatchAddClusterNodes",
+						"sagemaker:BatchDeleteClusterNodes",
+					},
+					"Resource": fmt.Sprintf("arn:%s:sagemaker:*:*:cluster/*", partition.DefaultPartition),
+					"Condition": map[string]interface{}{
+						"StringEquals": map[string]interface{}{
+							"aws:ResourceAccount": "${aws:PrincipalAccount}",
+						},
+					},
+				},
+				{
+					"Effect": "Allow",
+					"Action": []string{
+						"kms:CreateGrant",
+						"kms:DescribeKey",
+					},
+					"Resource": fmt.Sprintf("arn:%s:kms:*:*:key/*", partition.DefaultPartition),
+					"Condition": map[string]interface{}{
+						"StringLike": map[string]interface{}{
+							"kms:ViaService": "sagemaker.*.amazonaws.com",
+						},
+						"Bool": map[string]interface{}{
+							"kms:GrantIsForAWSResource": "true",
+						},
+						"ForAllValues:StringEquals": map[string]interface{}{
+							"kms:GrantOperations": []string{
+								"CreateGrant", "Decrypt", "DescribeKey",
+								"GenerateDataKeyWithoutPlaintext", "ReEncryptTo",
+								"ReEncryptFrom", "RetireGrant",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		clusterRole = awsiam.NewRole(ctx.Stack, jsii.String(clusterRoleId), &awsiam.RoleProps{
+			AssumedBy: awsiam.NewServicePrincipal(jsii.String("hyperpod.sagemaker.amazonaws.com"), nil),
+			InlinePolicies: &map[string]awsiam.PolicyDocument{
+				"SageMakerHyperPodKarpenterPolicy": awsiam.PolicyDocument_FromJson(&policyDocument),
+			},
+		})
+	}
+
 	clusterProps := &awssagemaker.CfnClusterProps{
 		ClusterName:    jsii.String(clusterName),
 		InstanceGroups: []interface{}{instanceGroup},
 	}
+
+	// Add cluster role if created
+	// Note: ClusterRole field not yet available in CDK, will use escape hatch below
 
 	// Optional properties
 	if orchestrator != nil {
@@ -317,6 +379,23 @@ func (h *HyperPodForge) createHyperPodCluster(hyperPodInstance *HyperPodInstance
 
 	// Create the cluster
 	cluster := awssagemaker.NewCfnCluster(ctx.Stack, jsii.String(hyperPodInstance.GetID()), clusterProps)
+
+	// Add AutoScaling support using escape hatch (CDK doesn't support it yet)
+	if orchestrator != nil && hyperPodInstance.EnableKarpenterScaling != nil && *hyperPodInstance.EnableKarpenterScaling {
+		// Only enable autoscaling for EKS orchestrator when explicitly enabled
+		cluster.AddPropertyOverride(jsii.String("AutoScaling"), map[string]interface{}{
+			"Mode":           "Enable",
+			"AutoScalerType": "Karpenter",
+		})
+		
+		// Add ClusterRole for autoscaling
+		if clusterRole != nil {
+			cluster.AddPropertyOverride(jsii.String("ClusterRole"), clusterRole.RoleArn())
+		}
+
+		// Create HyperPod NodeClass and NodePool for Karpenter autoscaling
+		createHyperPodKarpenterResources(hyperPodInstance, cluster)
+	}
 
 	// 添加对 EKS HyperPod 组件的依赖
 	if hyperPodInstance.DependsOn != "" {
@@ -458,6 +537,9 @@ func (h *HyperPodForge) MergeConfigs(defaults, instance config.InstanceConfig) c
 	}
 	if hyperPodInstance.LustreThroughput > 0 {
 		merged.LustreThroughput = hyperPodInstance.LustreThroughput
+	}
+	if hyperPodInstance.EnableKarpenterScaling != nil {
+		merged.EnableKarpenterScaling = hyperPodInstance.EnableKarpenterScaling
 	}
 
 	return merged
