@@ -202,15 +202,20 @@ For conversational infrastructure management with Amazon Q:
    sudo chmod +x /usr/local/bin/infraforge_mcp_server
    ```
 
-2. Prepare the working directory:
+2. Add the MCP server to Q CLI:
+   ```bash
+   q mcp add --force --name infraforge --command infraforge_mcp_server --timeout 7200000
+   ```
+
+3. Prepare the working directory:
    ```bash
    cd cmd/infraforge
    cp -r ../../configs .
    ```
 
-3. Start Amazon Q Chat with InfraForge tools:
+4. Start Amazon Q Chat with InfraForge tools:
    ```bash
-   q chat --trust-tools=fs_read,report_issue,infraforge___getDeploymentStatus,infraforge___getStackOutputs,infraforge___getOperationManual,infraforge___listTemplates
+   q chat --trust-tools=fs_read,@infraforge/getDeploymentStatus,@infraforge/getStackOutputs,@infraforge/getOperationManual,@infraforge/listTemplates
    ```
 
 4. Use conversational commands:

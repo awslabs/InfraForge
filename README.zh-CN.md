@@ -202,15 +202,20 @@ InfraForge 目前支持以下 forge 类型：
    sudo chmod +x /usr/local/bin/infraforge_mcp_server
    ```
 
-2. 准备工作目录：
+2. 将 MCP 服务器添加到 Q CLI：
+   ```bash
+   q mcp add --force --name infraforge --command infraforge_mcp_server --timeout 7200000
+   ```
+
+3. 准备工作目录：
    ```bash
    cd cmd/infraforge
    cp -r ../../configs .
    ```
 
-3. 启动带有 InfraForge 工具的 Amazon Q Chat：
+4. 启动带有 InfraForge 工具的 Amazon Q Chat：
    ```bash
-   q chat --trust-tools=fs_read,report_issue,infraforge___getDeploymentStatus,infraforge___getStackOutputs,infraforge___getOperationManual,infraforge___listTemplates
+   q chat --trust-tools=fs_read,@infraforge/getDeploymentStatus,@infraforge/getStackOutputs,@infraforge/getOperationManual,@infraforge/listTemplates
    ```
 
 4. 使用对话命令：

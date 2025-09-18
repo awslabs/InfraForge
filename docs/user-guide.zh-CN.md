@@ -24,6 +24,9 @@
    go build
    sudo cp infraforge_mcp_server /usr/local/bin/
    sudo chmod +x /usr/local/bin/infraforge_mcp_server
+   
+   # 将 MCP 服务器添加到 Q CLI
+   q mcp add --force --name infraforge --command infraforge_mcp_server --timeout 7200000
    ```
 
 ## 🛠️ 基本使用
@@ -65,7 +68,7 @@ cdk destroy --app ./infraforge
 
 ### 2. 启动带有 InfraForge 工具的 Amazon Q Chat
 ```bash
-q chat --trust-tools=fs_read,report_issue,infraforge___getDeploymentStatus,infraforge___getStackOutputs,infraforge___getOperationManual,infraforge___listTemplates
+q chat --trust-tools=fs_read,@infraforge/getDeploymentStatus,@infraforge/getStackOutputs,@infraforge/getOperationManual,@infraforge/listTemplates
 ```
 
 ### 3. 可用工具
@@ -73,11 +76,11 @@ q chat --trust-tools=fs_read,report_issue,infraforge___getDeploymentStatus,infra
 
 | 工具 | 权限 | 描述 |
 |------|------|------|
-| `infraforge___deployInfra` | 不受信任 | 从模板部署基础设施 |
-| `infraforge___getDeploymentStatus` | 受信任 | 检查部署状态 |
-| `infraforge___getOperationManual` | 受信任 | 获取操作说明 |
-| `infraforge___getStackOutputs` | 受信任 | 检索堆栈输出 |
-| `infraforge___listTemplates` | 受信任 | 列出可用配置模板 |
+| `@infraforge/deployInfra` | 不受信任 | 从模板部署基础设施 |
+| `@infraforge/getDeploymentStatus` | 受信任 | 检查部署状态 |
+| `@infraforge/getOperationManual` | 受信任 | 获取操作说明 |
+| `@infraforge/getStackOutputs` | 受信任 | 检索堆栈输出 |
+| `@infraforge/listTemplates` | 受信任 | 列出可用配置模板 |
 
 ### 4. Amazon Q 使用示例
 

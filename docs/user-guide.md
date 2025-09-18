@@ -24,6 +24,9 @@
    go build
    sudo cp infraforge_mcp_server /usr/local/bin/
    sudo chmod +x /usr/local/bin/infraforge_mcp_server
+   
+   # Add MCP server to Q CLI
+   q mcp add --force --name infraforge --command infraforge_mcp_server --timeout 7200000
    ```
 
 ## 🛠️ Basic Usage
@@ -65,7 +68,7 @@ If you want to use InfraForge with Amazon Q Chat for conversational infrastructu
 
 ### 2. Start Amazon Q Chat with InfraForge Tools
 ```bash
-q chat --trust-tools=fs_read,report_issue,infraforge___getDeploymentStatus,infraforge___getStackOutputs,infraforge___getOperationManual,infraforge___listTemplates
+q chat --trust-tools=fs_read,@infraforge/getDeploymentStatus,@infraforge/getStackOutputs,@infraforge/getOperationManual,@infraforge/listTemplates
 ```
 
 ### 3. Available Tools
@@ -73,11 +76,11 @@ Once connected, you'll have access to these InfraForge tools:
 
 | Tool | Permission | Description |
 |------|------------|-------------|
-| `infraforge___deployInfra` | not trusted | Deploy infrastructure from templates |
-| `infraforge___getDeploymentStatus` | trusted | Check deployment status |
-| `infraforge___getOperationManual` | trusted | Get operation instructions |
-| `infraforge___getStackOutputs` | trusted | Retrieve stack outputs |
-| `infraforge___listTemplates` | trusted | List available configuration templates |
+| `@infraforge/deployInfra` | not trusted | Deploy infrastructure from templates |
+| `@infraforge/getDeploymentStatus` | trusted | Check deployment status |
+| `@infraforge/getOperationManual` | trusted | Get operation instructions |
+| `@infraforge/getStackOutputs` | trusted | Retrieve stack outputs |
+| `@infraforge/listTemplates` | trusted | List available configuration templates |
 
 ### 4. Example Usage with Amazon Q
 
