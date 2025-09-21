@@ -33,7 +33,7 @@ func deployMlflow(stack awscdk.Stack, cluster awseks.Cluster, version string) aw
 }
 
 // 部署 Legacy Training Operator 的函数
-func deployLegacyTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.KubernetesManifest {
+func deployLegacyTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, version string, eksAdminSA awseks.KubernetesManifest, eksAdminCRB awseks.KubernetesManifest) awseks.KubernetesManifest {
 	// 创建 kubeflow 命名空间
 	kubeflowNamespaceMap := map[string]interface{}{
 		"apiVersion": "v1",
@@ -44,39 +44,7 @@ func deployLegacyTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 	}
 	kubeflowNamespace := cluster.AddManifest(jsii.String("kubeflow-namespace"), &kubeflowNamespaceMap)
 	
-	// 创建 eks-admin ServiceAccount 和 ClusterRoleBinding 以便执行 kubectl 命令
-	eksAdminSAMap := map[string]interface{}{
-		"apiVersion": "v1",
-		"kind": "ServiceAccount",
-		"metadata": map[string]interface{}{
-			"name": "eks-admin",
-			"namespace": "kube-system",
-		},
-	}
-	eksAdminSA := cluster.AddManifest(jsii.String("eks-admin-service-account"), &eksAdminSAMap)
-	
-	eksAdminCRBMap := map[string]interface{}{
-		"apiVersion": "rbac.authorization.k8s.io/v1",
-		"kind": "ClusterRoleBinding",
-		"metadata": map[string]interface{}{
-			"name": "eks-admin",
-		},
-		"roleRef": map[string]interface{}{
-			"apiGroup": "rbac.authorization.k8s.io",
-			"kind": "ClusterRole",
-			"name": "cluster-admin",
-		},
-		"subjects": []map[string]interface{}{
-			{
-				"kind": "ServiceAccount",
-				"name": "eks-admin",
-				"namespace": "kube-system",
-			},
-		},
-	}
-	eksAdminCRB := cluster.AddManifest(jsii.String("eks-admin-cluster-role-binding"), &eksAdminCRBMap)
-	
-	// 创建 Job 来执行 kubectl apply 命令
+	// 创建 Job 来执行 kubectl apply 命令（使用传入的 eks-admin 资源）
 	applyCommand := fmt.Sprintf("kubectl apply --server-side -k \"github.com/kubeflow/training-operator.git/manifests/overlays/standalone?ref=v%s\"", version)
 	
 	trainingOperatorJobMap := map[string]interface{}{
@@ -122,7 +90,7 @@ func deployLegacyTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 }
 
 // 部署新版 Training Operator 的函数
-func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.KubernetesManifest {
+func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, version string, eksAdminSA awseks.KubernetesManifest, eksAdminCRB awseks.KubernetesManifest) awseks.KubernetesManifest {
 	// 创建 kubeflow-system 命名空间
 	kubeflowSystemNamespaceMap := map[string]interface{}{
 		"apiVersion": "v1",
@@ -132,38 +100,6 @@ func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 		},
 	}
 	kubeflowSystemNamespace := cluster.AddManifest(jsii.String("kubeflow-system-namespace"), &kubeflowSystemNamespaceMap)
-	
-	// 创建 eks-admin ServiceAccount 和 ClusterRoleBinding 以便执行 kubectl 命令
-	eksAdminSAMap := map[string]interface{}{
-		"apiVersion": "v1",
-		"kind": "ServiceAccount",
-		"metadata": map[string]interface{}{
-			"name": "eks-admin-new",
-			"namespace": "kube-system",
-		},
-	}
-	eksAdminSA := cluster.AddManifest(jsii.String("eks-admin-service-account-new"), &eksAdminSAMap)
-	
-	eksAdminCRBMap := map[string]interface{}{
-		"apiVersion": "rbac.authorization.k8s.io/v1",
-		"kind": "ClusterRoleBinding",
-		"metadata": map[string]interface{}{
-			"name": "eks-admin-new",
-		},
-		"roleRef": map[string]interface{}{
-			"apiGroup": "rbac.authorization.k8s.io",
-			"kind": "ClusterRole",
-			"name": "cluster-admin",
-		},
-		"subjects": []map[string]interface{}{
-			{
-				"kind": "ServiceAccount",
-				"name": "eks-admin-new",
-				"namespace": "kube-system",
-			},
-		},
-	}
-	eksAdminCRB := cluster.AddManifest(jsii.String("eks-admin-cluster-role-binding-new"), &eksAdminCRBMap)
 	
 	// 使用传入的版本参数
 	// 创建 Job 来执行安装 Kubeflow Trainer Controller Manager 的命令
@@ -179,7 +115,7 @@ func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 		"spec": map[string]interface{}{
 			"template": map[string]interface{}{
 				"spec": map[string]interface{}{
-					"serviceAccountName": "eks-admin-new",
+					"serviceAccountName": "eks-admin",
 					"containers": []map[string]interface{}{
 						{
 							"name": "kubectl",
@@ -214,7 +150,7 @@ func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 		"spec": map[string]interface{}{
 			"template": map[string]interface{}{
 				"spec": map[string]interface{}{
-					"serviceAccountName": "eks-admin-new",
+					"serviceAccountName": "eks-admin",
 					"containers": []map[string]interface{}{
 						{
 							"name": "kubectl",

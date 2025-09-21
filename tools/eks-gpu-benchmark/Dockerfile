@@ -1,0 +1,230 @@
+# InfraForge - 专业 HPC 性能测试镜像
+FROM nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu24.04 as builder
+
+# 版本定义 - 方便维护和升级
+ARG NCCL_TESTS_VERSION=2.17.1
+ARG OSU_VERSION=7.5.1
+ARG IOR_VERSION=4.0.0
+ARG PERFTEST_VERSION=25.07.0-0.104
+ARG FABTESTS_VERSION=2.3.0
+ARG SOCKPERF_VERSION=3.10
+ARG EFA_INSTALLER_VERSION=1.43.2
+ARG AWS_OFI_NCCL_VERSION=1.16.3
+ARG GDRCOPY_VERSION=2.5.1
+ARG NCCL_VERSION=2.28.3-1
+
+# 系统更新和清理预装包
+RUN apt-get update -y && apt-get upgrade -y \
+    && apt-get remove -y --allow-change-held-packages \
+        ibverbs-utils libibverbs-dev libibverbs1 libmlx5-1 libnccl2 libnccl-dev \
+    && rm -rf /opt/hpcx /usr/local/mpi \
+    && rm -f /etc/ld.so.conf.d/hpcx.conf \
+    && ldconfig \
+    && apt-get purge -y cuda-compat-* \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV OPAL_PREFIX=
+
+# 安装所有构建依赖和 EFA 运行时依赖
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    apt-utils autoconf automake build-essential check cmake curl git gcc gdb \
+    kmod libsubunit-dev libtool libhwloc-dev libpci-dev pkg-config \
+    python3-dev python3-setuptools unzip libboost-program-options-dev \
+    pciutils tcl libnl-3-200 libnl-3-dev libnl-route-3-200 libnl-route-3-dev \
+    udev dmidecode ethtool iproute2 libevent-core-2.1-7t64 libevent-pthreads-2.1-7t64 \
+    libevent-dev environment-modules \
+    && . /etc/profile \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "awscliv2.zip" \
+    && unzip awscliv2.zip && ./aws/install || true \
+    && rm -rf awscliv2.zip aws
+
+# 构建所有组件 (合并 RUN 减少层数)
+RUN set -e \
+    # GDRCopy
+    && curl -JLOk https://github.com/NVIDIA/gdrcopy/archive/refs/tags/v${GDRCOPY_VERSION}.tar.gz \
+    && tar xf gdrcopy-${GDRCOPY_VERSION}.tar.gz \
+    && cd gdrcopy-${GDRCOPY_VERSION} && make prefix=/infraforge install && cd .. \
+    && rm -rf gdrcopy-* \
+    \
+    # EFA Installer
+    && curl -O https://efa-installer.amazonaws.com/aws-efa-installer-${EFA_INSTALLER_VERSION}.tar.gz \
+    && tar xf aws-efa-installer-${EFA_INSTALLER_VERSION}.tar.gz \
+    && cd aws-efa-installer && ./efa_installer.sh -y -g -d --skip-kmod --skip-limit-conf --no-verify && cd .. \
+    && rm -rf aws-efa-installer* \
+    \
+    # NCCL
+    && curl -JLOk https://github.com/NVIDIA/nccl/archive/refs/tags/v${NCCL_VERSION}.tar.gz \
+    && tar xf nccl-${NCCL_VERSION}.tar.gz \
+    && cd nccl-${NCCL_VERSION} \
+    && make -j $(nproc) src.build CUDA_HOME=/usr/local/cuda PREFIX=/infraforge \
+       NVCC_GENCODE="-gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 -gencode=arch=compute_100,code=sm_100" \
+    && make PREFIX=/infraforge install && cd .. \
+    && rm -rf nccl-*
+
+# 构建网络和 MPI 工具
+SHELL ["/bin/bash", "-c"]
+RUN set -e \
+    # AWS-OFI-NCCL
+    && curl -OL https://github.com/aws/aws-ofi-nccl/releases/download/v${AWS_OFI_NCCL_VERSION}/aws-ofi-nccl-${AWS_OFI_NCCL_VERSION}.tar.gz \
+    && tar xf aws-ofi-nccl-${AWS_OFI_NCCL_VERSION}.tar.gz \
+    && cd aws-ofi-nccl-${AWS_OFI_NCCL_VERSION} \
+    && ./configure --prefix=/infraforge --with-mpi=/opt/amazon/openmpi --with-libfabric=/opt/amazon/efa \
+       --with-cuda=/usr/local/cuda --with-nccl=/infraforge --enable-platform-aws \
+    && make -j $(nproc) && make install && cd .. \
+    && rm -rf aws-ofi-nccl-* \
+    \
+    # NCCL Tests
+    && curl -JLOk https://github.com/NVIDIA/nccl-tests/archive/refs/tags/v${NCCL_TESTS_VERSION}.tar.gz \
+    && tar xf nccl-tests-${NCCL_TESTS_VERSION}.tar.gz \
+    && cd nccl-tests-${NCCL_TESTS_VERSION} \
+    && make -j $(nproc) MPI=1 MPI_HOME=/opt/amazon/openmpi CUDA_HOME=/usr/local/cuda NCCL_HOME=/infraforge \
+       NVCC_GENCODE="-gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 -gencode=arch=compute_100,code=sm_100" \
+    && cp build/*_perf /infraforge/bin/ && cd .. \
+    && rm -rf nccl-tests-* \
+    \
+    # nvbandwidth v0.8 - GPU 内存带宽测试工具 (支持多节点)
+    && curl -JLOk https://github.com/NVIDIA/nvbandwidth/archive/refs/tags/v0.8.tar.gz \
+    && tar xf nvbandwidth-0.8.tar.gz \
+    && cd nvbandwidth-0.8 \
+    && PATH=/opt/amazon/openmpi/bin:$PATH cmake -DMULTINODE=1 . \
+    && make -j $(nproc) \
+    && cp nvbandwidth /infraforge/bin/ && cd .. \
+    && rm -rf nvbandwidth-* \
+    \
+    # OSU Benchmarks with NCCL support
+    && curl -O https://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
+    && tar xf osu-micro-benchmarks-${OSU_VERSION}.tar.gz \
+    && cd osu-micro-benchmarks-${OSU_VERSION} \
+    && ./configure --prefix=/infraforge CC=/opt/amazon/openmpi/bin/mpicc CXX=/opt/amazon/openmpi/bin/mpicxx \
+       --enable-cuda --with-cuda=/usr/local/cuda \
+       --enable-ncclomb --with-nccl=/infraforge \
+    && make -j $(nproc) && make install \
+    && ln -sf /infraforge/libexec/osu-micro-benchmarks/mpi/pt2pt/* /infraforge/bin/ \
+    && ln -sf /infraforge/libexec/osu-micro-benchmarks/mpi/collective/* /infraforge/bin/ \
+    && ln -sf /infraforge/libexec/osu-micro-benchmarks/mpi/one-sided/* /infraforge/bin/ \
+    && ln -sf /infraforge/libexec/osu-micro-benchmarks/mpi/congestion/* /infraforge/bin/ \
+    && ln -sf /infraforge/libexec/osu-micro-benchmarks/xccl/pt2pt/* /infraforge/bin/ \
+    && ln -sf /infraforge/libexec/osu-micro-benchmarks/xccl/collective/* /infraforge/bin/ \
+    && cd .. && rm -rf osu-micro-benchmarks-*
+SHELL ["/bin/sh", "-c"]
+
+# 构建 I/O 和网络测试工具
+RUN set -e \
+    # IOR
+    && curl -JLOk https://github.com/hpc/ior/archive/refs/tags/${IOR_VERSION}.tar.gz \
+    && tar xf ior-${IOR_VERSION}.tar.gz \
+    && cd ior-${IOR_VERSION} && ./bootstrap \
+    && ./configure --prefix=/infraforge --with-mpiio CC=/opt/amazon/openmpi/bin/mpicc \
+    && make -j $(nproc) && make install && cd .. \
+    && rm -rf ior-* \
+    \
+    # perftest
+    && curl -JLOk https://github.com/linux-rdma/perftest/archive/refs/tags/${PERFTEST_VERSION}.tar.gz \
+    && tar xf perftest-${PERFTEST_VERSION}.tar.gz \
+    && cd perftest-${PERFTEST_VERSION} && ./autogen.sh \
+    && ./configure --prefix=/infraforge && make -j $(nproc) && make install && cd .. \
+    && rm -rf perftest-* \
+    \
+    # fabtests
+    && curl -JLOk https://github.com/ofiwg/libfabric/releases/download/v${FABTESTS_VERSION}/fabtests-${FABTESTS_VERSION}.tar.bz2 \
+    && tar xf fabtests-${FABTESTS_VERSION}.tar.bz2 \
+    && cd fabtests-${FABTESTS_VERSION} \
+    && ./configure --prefix=/infraforge --with-libfabric=/opt/amazon/efa \
+    && make -j $(nproc) && make install && cd .. \
+    && rm -rf fabtests-* \
+    \
+    # sockperf
+    && curl -JLOk https://github.com/Mellanox/sockperf/archive/refs/tags/${SOCKPERF_VERSION}.tar.gz \
+    && tar xf sockperf-${SOCKPERF_VERSION}.tar.gz \
+    && cd sockperf-${SOCKPERF_VERSION} && ./autogen.sh \
+    && ./configure --prefix=/infraforge && make -j $(nproc) && make install && cd .. \
+    && rm -rf sockperf-* \
+    \
+    # 最终清理
+    && apt-get autoremove -y && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# 运行时镜像 - 只保留必要文件
+FROM nvcr.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
+ARG EFA_INSTALLER_VERSION=1.43.2
+
+# 安装运行时依赖
+RUN DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    iperf3 curl python3 wget git fio stress-ng netcat-openbsd \
+    pciutils tcl libnl-3-200 libnl-route-3-200 udev dmidecode ethtool iproute2 \
+    libevent-core-2.1-7t64 libevent-pthreads-2.1-7t64 libhwloc15 unzip apt-utils \
+    && apt-get remove -y --allow-change-held-packages libnccl2 || true \
+    && apt-get autoremove -y
+
+# 安装 AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o "awscliv2.zip" \
+    && unzip awscliv2.zip && ./aws/install || true \
+    && rm -rf awscliv2.zip aws
+
+# 构建所有组件 (合并 RUN 减少层数)
+# EFA Installer, kubectl & helm
+RUN set -e \
+    && curl -O https://efa-installer.amazonaws.com/aws-efa-installer-${EFA_INSTALLER_VERSION}.tar.gz \
+    && tar zxf aws-efa-installer-${EFA_INSTALLER_VERSION}.tar.gz \
+    && cd aws-efa-installer && ./efa_installer.sh -y -g -d --skip-kmod --skip-limit-conf --no-verify && cd .. \
+    && rm -rf aws-efa-installer* \
+    && mkdir -p /opt/kube \
+    && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" \
+    && chmod +x kubectl && mv kubectl /opt/kube/kubectl \
+    && ln -sf /opt/kube/kubectl /usr/local/bin/kubectl \
+    && curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制必要的运行时组件
+#COPY --from=builder /opt/amazon /opt/amazon
+COPY --from=builder /infraforge /infraforge
+
+# 设置环境变量
+ENV LD_LIBRARY_PATH=/usr/local/cuda/extras/CUPTI/lib64:/opt/amazon/openmpi/lib:/infraforge/lib:/opt/amazon/efa/lib:/usr/local/lib:$LD_LIBRARY_PATH \
+    PATH=/infraforge/bin:/opt/amazon/openmpi/bin:/opt/amazon/efa/bin:/opt/kube:$PATH \
+    LIBRARY_PATH=/infraforge/lib:$LIBRARY_PATH \
+    CPATH=/infraforge/include:$CPATH \
+    OMPI_MCA_mtl=ofi \
+    OMPI_MCA_pml=cm \
+    OMPI_MCA_mtl_ofi_provider_exclude=shm,sockets,udp,rstream,usnic,net \
+    OPAL_PREFIX=/opt/amazon/openmpi \
+    NCCL_SOCKET_IFNAME=^docker,lo,veth \
+    NCCL_CROSS_NIC=1 \
+    PMIX_MCA_gds=hash \
+    NCCL_DEBUG=INFO
+
+# 创建测试脚本
+RUN echo '#!/bin/bash\n\
+echo "=== InfraForge HPC Performance Test Suite ==="\n\
+echo "NCCL Tests: all_reduce_perf, all_gather_perf, etc."\n\
+echo "OSU Benchmarks: osu_latency, osu_bw, osu_allreduce, etc."\n\
+echo "IOR: ior (I/O performance)"\n\
+echo "fio: Flexible I/O tester"\n\
+echo "stress-ng: System stress testing"\n\
+echo "perftest: ib_send_bw, ib_send_lat, etc."\n\
+echo "fabtests: fi_pingpong, fi_rdm_pingpong, etc."\n\
+echo "sockperf: Network latency and throughput testing"\n\
+echo "iperf3: TCP performance"\n\
+echo "netcat: Network connectivity testing"\n\
+echo "kubectl: Kubernetes cluster management"\n\
+echo "helm: Kubernetes package manager"\n\
+echo "GDRCopy: gdrcopy_sanity, gdrcopy_copybw"\n\
+echo "AWS-OFI-NCCL: Enhanced EFA performance"\n\
+echo "nvbandwidth: NVIDIA GPU memory bandwidth testing"\n\
+echo "AWS CLI v2: Amazon Web Services command line interface"\n\
+echo "All components unified under /infraforge"\n\
+echo "Architecture: $(uname -m)"\n\
+touch /tmp/compilation_done\n\
+if [ $# -eq 0 ]; then\n\
+  sleep 365d\n\
+else\n\
+  exec "$@"\n\
+fi\n\
+' > /infraforge/test-suite.sh && chmod +x /infraforge/test-suite.sh
+
+WORKDIR /infraforge
+ENTRYPOINT ["/infraforge/test-suite.sh"]
+CMD ["/bin/bash"]

@@ -1,0 +1,351 @@
+apiVersion: kubeflow.org/v1
+kind: MPIJob
+metadata:
+  name: infraforge-gpu-efa-amd64
+  namespace: default
+  # Usage Instructions:
+  # 1. Configure environment variables in launcher:
+  #    - WORKER_COUNT: Number of worker pods (default: 2)
+  #    - GPU_PER_WORKER: GPUs per worker (default: 4) 
+  #    - CPU_PER_WORKER: CPU cores per worker (default: 80)
+  #    - MEMORY_PER_WORKER: Memory per worker (default: 640Gi)
+  # 2. Update Worker replicas to match WORKER_COUNT
+  # 3. Update Worker resources to match GPU/CPU/Memory settings
+  # 4. Deploy: kubectl apply -f infraforge-gpu-efa-network-benchmark-amd64.yaml
+  # 
+  # Example configurations:
+  # - g6e.24xlarge: WORKER_COUNT=2, GPU_PER_WORKER=4 (total 8 GPUs)
+  # - p4d.24xlarge: WORKER_COUNT=2, GPU_PER_WORKER=8 (total 16 GPUs)
+  # - p5.48xlarge: WORKER_COUNT=4, GPU_PER_WORKER=8 (total 32 GPUs)
+  # - Large scale: WORKER_COUNT=8, GPU_PER_WORKER=8 (total 64 GPUs)
+spec:
+  slotsPerWorker: 4  # 每个 worker 4个 GPU
+  runPolicy:
+    cleanPodPolicy: Running
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        spec:
+          nodeSelector:
+            nodepool-type: cpu
+            kubernetes.io/arch: amd64
+          volumes:
+          - name: s3-storage
+            persistentVolumeClaim:
+              claimName: s3-sc-pvc
+          containers:
+          - name: mpi-launcher
+            image: public.ecr.aws/w7t9b2j0/infraforge:latest
+            volumeMounts:
+            - name: s3-storage
+              mountPath: /s3
+            env:
+            - name: WORKER_COUNT
+              value: "2"
+            - name: GPU_PER_WORKER
+              value: "4"
+            - name: CPU_PER_WORKER
+              value: "80"
+            - name: MEMORY_PER_WORKER
+              value: "640Gi"
+            command:
+            - /bin/bash
+            - -c
+            - |
+              # 获取配置参数
+              WORKERS=${WORKER_COUNT:-2}
+              GPUS=${GPU_PER_WORKER:-1}
+              TOTAL_GPUS=$((WORKERS * GPUS))
+              
+              echo "=== Configuration ==="
+              echo "Workers: $WORKERS"
+              echo "GPUs per worker: $GPUS"
+              echo "Total GPUs: $TOTAL_GPUS"
+              echo "CPU per worker: ${CPU_PER_WORKER:-80}"
+              echo "Memory per worker: ${MEMORY_PER_WORKER:-640Gi}"
+              echo "Network: EFA with AWS-OFI-NCCL"
+              
+              # 等待 worker 容器完全就绪
+              echo "zzz *** $(date) *** Waiting for $WORKERS worker containers to be ready..."
+              for i in {1..60}; do
+                READY_COUNT=$(kubectl get pods -l training.kubeflow.org/replica-type=worker --no-headers 2>/dev/null | grep "1/1.*Running" | wc -l)
+                if [ "$READY_COUNT" -eq "$WORKERS" ]; then
+                  echo "All $WORKERS workers are ready!"
+                  break
+                fi
+                echo "Waiting for workers... ($READY_COUNT/$WORKERS ready, attempt $i/60)"
+                sleep 5
+              done
+              
+              # 额外等待确保容器内部完全初始化
+              echo "zzz *** $(date) *** Additional wait for container initialization..."
+              sleep 15
+              
+              # 测试连接到所有 worker
+              echo "zzz *** $(date) *** Testing worker connectivity..."
+              for ((i=0; i<$WORKERS; i++)); do
+                kubectl exec infraforge-gpu-efa-amd64-worker-$i -- echo "Worker $i ready" || exit 1
+              done
+              
+              # 检查 EFA 设备
+              echo "zzz *** $(date) *** Checking EFA devices on workers..."
+              for ((i=0; i<$WORKERS; i++)); do
+                echo "Worker $i EFA devices:"
+                kubectl exec infraforge-gpu-efa-amd64-worker-$i -- fi_info -p efa || echo "No EFA devices found on worker $i"
+              done
+              
+              echo "=== InfraForge NCCL Test (AMD64 Workers with EFA) ==="
+              echo "Launcher node: $(hostname) - $(uname -m)"
+              echo "Worker count: $WORKERS"
+              
+              # 创建结果目录
+              RESULT_DIR="/s3/infraforge-results/eks/amd64-efa-$(date +%Y%m%d-%H%M%S)"
+              TEMP_DIR="/tmp/infraforge-results"
+              mkdir -p "$TEMP_DIR" || { echo "Failed to create temp directory: $TEMP_DIR"; exit 1; }
+              echo "Results will be saved to: $RESULT_DIR"
+              
+              # 运行 NCCL 测试并保存结果 (使用 EFA)
+              echo "zzz *** $(date) *** Starting NCCL All-Reduce test (EFA enabled)..."
+                #-x FI_PROVIDER=efa \
+                #-x RDMAV_FORK_SAFE=1 \
+                #-x FI_EFA_USE_DEVICE_RDMA=1 \
+                #-x NCCL_ALGO=Ring \
+                #-x NCCL_NET_PLUGIN=none # tcp \
+              mpirun -n $TOTAL_GPUS -N $GPUS \
+                --bind-to none \
+                --allow-run-as-root \
+                all_reduce_perf -b 8 -e 8G -f 2 -g 1 -c 1 -n 20 \
+                2>&1 | tee "$TEMP_DIR/nccl-allreduce-results.log"
+              
+              echo "zzz *** $(date) *** Starting NCCL All-Gather test (EFA enabled)..."
+              mpirun -n $TOTAL_GPUS -N $GPUS \
+                --bind-to none \
+                --allow-run-as-root \
+                all_gather_perf -b 8 -e 8G -f 2 -g 1 -c 1 -n 20 \
+                2>&1 | tee "$TEMP_DIR/nccl-allgather-results.log"
+              
+              echo "zzz *** $(date) *** Starting NCCL Broadcast test (EFA enabled)..."
+              mpirun -n $TOTAL_GPUS -N $GPUS \
+                --bind-to none \
+                --allow-run-as-root \
+                broadcast_perf -b 8 -e 8G -f 2 -g 1 -c 1 -n 20 \
+                2>&1 | tee "$TEMP_DIR/nccl-broadcast-results.log"
+              
+              # 运行 nvbandwidth 单节点测试 (通过 mpirun 调度到 worker 节点)
+              echo "zzz *** $(date) *** Starting nvbandwidth single node tests on worker nodes..."
+              
+              # GPU-to-GPU 内存拷贝
+              echo "nvbandwidth: GPU-to-GPU memory copy"
+              mpirun -n $TOTAL_GPUS -N $GPUS \
+                --bind-to none \
+                --allow-run-as-root \
+                bash -c "nvbandwidth -t device_to_device_memcpy_read_ce" \
+                2>&1 | tee "$TEMP_DIR/nvbandwidth-d2d-results.log"
+              
+              # GPU-to-Host 内存拷贝  
+              echo "nvbandwidth: GPU-to-Host memory copy"
+              mpirun -n $TOTAL_GPUS -N $GPUS \
+                --bind-to none \
+                --allow-run-as-root \
+                bash -c "nvbandwidth -t device_to_host_memcpy_ce" \
+                2>&1 | tee "$TEMP_DIR/nvbandwidth-d2h-results.log"
+              
+              # Host-to-GPU 内存拷贝
+              echo "nvbandwidth: Host-to-GPU memory copy"  
+              mpirun -n $TOTAL_GPUS -N $GPUS \
+                --bind-to none \
+                --allow-run-as-root \
+                bash -c "nvbandwidth -t host_to_device_memcpy_ce" \
+                2>&1 | tee "$TEMP_DIR/nvbandwidth-h2d-results.log"
+              
+              # Host-to-Host 内存拷贝
+              echo "nvbandwidth: Host-to-Host memory copy"
+              mpirun -n $TOTAL_GPUS -N $GPUS \
+                --bind-to none \
+                --allow-run-as-root \
+                bash -c "nvbandwidth -t host_to_host_memcpy_ce" \
+                2>&1 | tee "$TEMP_DIR/nvbandwidth-h2h-results.log"
+              
+              # 运行 OSU XCCL 点对点延迟测试 (NCCL GPU 内存)
+              echo "zzz *** $(date) *** Starting OSU XCCL point-to-point latency test (NCCL)..."
+              mpirun -n 2 -N 1 \
+                --bind-to none \
+                --allow-run-as-root \
+                osu_xccl_latency \
+                2>&1 | tee "$TEMP_DIR/osu-xccl-latency-results.log"
+              
+              # 运行 OSU XCCL 点对点带宽测试 (NCCL GPU 内存)
+              echo "zzz *** $(date) *** Starting OSU XCCL point-to-point bandwidth test (NCCL)..."
+              mpirun -n 2 -N 1 \
+                --bind-to none \
+                --allow-run-as-root \
+                osu_xccl_bw \
+                2>&1 | tee "$TEMP_DIR/osu-xccl-bandwidth-results.log"
+              
+              # 运行 OSU XCCL AllReduce 测试 (NCCL)
+              echo "zzz *** $(date) *** Starting OSU XCCL AllReduce test (NCCL)..."
+              mpirun -n $TOTAL_GPUS -N $GPUS \
+                --bind-to none \
+                --allow-run-as-root \
+                osu_xccl_allreduce \
+                2>&1 | tee "$TEMP_DIR/osu-xccl-allreduce-results.log"
+              
+              # 运行 OSU XCCL 双向带宽测试 (NCCL)
+              echo "zzz *** $(date) *** Starting OSU XCCL bidirectional bandwidth test (NCCL)..."
+              mpirun -n 2 -N 1 \
+                --bind-to none \
+                --allow-run-as-root \
+                osu_xccl_bibw \
+                2>&1 | tee "$TEMP_DIR/osu-xccl-bibw-results.log"
+              
+              # 运行 OSU CUDA Managed Memory 测试
+              echo "zzz *** $(date) *** Starting OSU tests with CUDA Managed Memory (EFA enabled)..."
+              
+              # Managed Memory 延迟测试
+              mpirun -n 2 -N 1 \
+                --bind-to none \
+                --allow-run-as-root \
+                osu_latency M M \
+                2>&1 | tee "$TEMP_DIR/osu-managed-latency-results.log"
+              
+              # Managed Memory 带宽测试
+              mpirun -n 2 -N 1 \
+                --bind-to none \
+                --allow-run-as-root \
+                osu_bw M M \
+                2>&1 | tee "$TEMP_DIR/osu-managed-bandwidth-results.log"
+              
+              # 保存测试配置到本地
+              echo "zzz *** $(date) *** Saving test configuration..."
+              TEST_DATE=$(date -Iseconds)
+              cat > "$TEMP_DIR/test-config.json" << EOF
+              {
+                "test_date": "$TEST_DATE",
+                "test_type": "InfraForge NCCL All-Reduce Performance (AMD64 Workers with EFA)",
+                "launcher_image": "public.ecr.aws/w7t9b2j0/infraforge:latest",
+                "worker_image": "public.ecr.aws/w7t9b2j0/infraforge:latest",
+                "launcher_arch": "amd64",
+                "worker_arch": "amd64",
+                "network": "EFA with AWS-OFI-NCCL",
+                "worker_count": $WORKERS,
+                "gpu_per_worker": $GPUS,
+                "total_gpus": $TOTAL_GPUS,
+                "nccl_version": "2.28.3",
+                "cuda_version": "12.8",
+                "aws_ofi_nccl_version": "1.16.3",
+                "efa_enabled": true
+              }
+              EOF
+              
+              # 保存测试总结到本地
+              SUMMARY_DATE=$(date)
+              cat > "$TEMP_DIR/summary.txt" << EOF
+              === InfraForge NCCL Test Summary (AMD64 with EFA) ===
+              Date: $SUMMARY_DATE
+              Architecture: AMD64 Workers + AMD64 Launcher
+              Network: EFA with AWS-OFI-NCCL plugin
+              Instance: Auto-selected by Karpenter (EFA-enabled)
+              Workers: $WORKERS
+              GPUs per worker: $GPUS
+              Total GPUs: $TOTAL_GPUS
+              CPU per worker: ${CPU_PER_WORKER:-80}
+              Memory per worker: ${MEMORY_PER_WORKER:-640Gi}
+              NCCL Version: 2.28.3
+              CUDA Version: 12.8
+              AWS-OFI-NCCL Version: 1.16.3
+              EFA Provider: Enabled
+              Test Duration: ~20-30 minutes
+              Tests: 
+                - NCCL AllReduce (nccl-allreduce-results.log)
+                - NCCL AllGather (nccl-allgather-results.log) 
+                - NCCL Broadcast (nccl-broadcast-results.log)
+                - nvbandwidth GPU-to-GPU (nvbandwidth-d2d-results.log)
+                - nvbandwidth GPU-to-Host (nvbandwidth-d2h-results.log)
+                - nvbandwidth Host-to-GPU (nvbandwidth-h2d-results.log)
+                - nvbandwidth Host-to-Host (nvbandwidth-h2h-results.log)
+              Expected Performance: >100 GB/s aggregate bandwidth with EFA
+              EOF
+              
+              # 复制所有文件到 S3
+              echo "Copying results to S3..."
+              mkdir -p "$RESULT_DIR"
+              cp "$TEMP_DIR"/* "$RESULT_DIR/" && echo "Successfully copied all files to S3" || echo "Warning: Some files may not have been copied to S3"
+              
+              echo "=== Test completed successfully! ==="
+              echo "Results saved to S3: $RESULT_DIR"
+              ls -la "$RESULT_DIR"
+              
+              # 保持容器运行以便检查日志
+              echo "Keeping container alive for 10 minutes for log inspection..."
+              sleep 600
+    Worker:
+      replicas: 2  # 根据 WORKER_COUNT 调整
+      template:
+        metadata:
+          annotations:
+            k8s.amazonaws.com/nicConfig: multi-nic-attachment
+        spec:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchExpressions:
+                  - key: training.kubeflow.org/replica-type
+                    operator: In
+                    values:
+                    - worker
+                topologyKey: kubernetes.io/hostname
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchExpressions:
+                  - key: training.kubeflow.org/replica-type
+                    operator: In
+                    values: ["worker"]
+                  - key: training.kubeflow.org/job-name
+                    operator: In
+                    values: ["infraforge-gpu-efa-amd64"]
+                topologyKey: topology.kubernetes.io/zone
+                # 确保所有 worker 在同一个 AZ
+              - labelSelector:
+                  matchExpressions:
+                  - key: training.kubeflow.org/replica-type
+                    operator: In
+                    values: ["worker"]
+                  - key: training.kubeflow.org/job-name
+                    operator: In
+                    values: ["infraforge-gpu-efa-amd64"]
+                topologyKey: node.kubernetes.io/instance-type
+                # 确保所有 worker 使用相同实例类型
+          nodeSelector:
+            kubernetes.io/arch: amd64
+            # 移除严格的实例类型限制，允许 Karpenter 选择可用的 GPU 实例
+          volumes:
+          - name: s3-storage
+            persistentVolumeClaim:
+              claimName: s3-sc-pvc
+          - name: dshm
+            emptyDir:
+              medium: Memory
+              sizeLimit: 1Gi  # 增加共享内存到 1GB
+          containers:
+          - name: mpi-worker
+            image: public.ecr.aws/w7t9b2j0/infraforge:latest
+            volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: s3-storage
+              mountPath: /s3
+            env:
+            - name: OMPI_MCA_mtl_base_verbose
+              value: "1"
+            resources:
+              requests:
+                nvidia.com/gpu: 4
+                cpu: "80"
+                memory: "640Gi"
+                vpc.amazonaws.com/efa: 2
+              limits:
+                nvidia.com/gpu: 4
+                vpc.amazonaws.com/efa: 2

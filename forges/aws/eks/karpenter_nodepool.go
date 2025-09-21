@@ -184,17 +184,20 @@ func createTypedNodePool(scope constructs.Construct, id string, props *Karpenter
 	// 构建磁盘配置
 	blockDeviceMappings := buildBlockDeviceMappings(config.DiskSize)
 	
-	// 设置资源限制 - 使用固定值，不依赖 MaxSize
-	cpuLimit := 1000
-	memoryLimit := "1000Gi"
-	gpuLimit := ""
+	// 设置资源限制 - 移除硬编码限制，允许无限制扩展
+	// cpuLimit := 1000
+	// memoryLimit := "1000Gi"
+	// gpuLimit := ""
 	
 	// 为 GPU 节点池添加 GPU 限制
-	if nodeType == NodePoolTypeGpu {
-		gpuLimit = `
-    nvidia.com/gpu: 8`
-	}
+	// if nodeType == NodePoolTypeGpu {
+	//	gpuLimit = `
+    // nvidia.com/gpu: 8`
+	// }
 	
+	// Launch Template 配置已移除（Karpenter v1 不支持）
+	launchTemplateConfig := ""
+
 	// 创建 NodePool 和 EC2NodeClass 的 Kubernetes 清单
 	nodePoolManifest := fmt.Sprintf(`
 apiVersion: karpenter.sh/v1
@@ -212,9 +215,6 @@ spec:
         kind: EC2NodeClass
         name: %s
       expireAfter: 720h
-  limits:
-    cpu: %d
-    memory: %s%s
   disruption:
     consolidationPolicy: WhenEmptyOrUnderutilized
     consolidateAfter: 30s
@@ -226,6 +226,7 @@ metadata:
 spec:
   instanceProfile: %s
   amiFamily: %s
+  associatePublicIPAddress: false%s
   amiSelectorTerms:%s%s
   subnetSelectorTerms:
   - tags:
@@ -243,12 +244,10 @@ spec:
 		instanceRequirements,
 		nodeTaints,
 		resourceName,
-		cpuLimit,
-		memoryLimit,
-		gpuLimit,
 		resourceName,
 		roleName,
 		getAmiFamily(props.KarpenterOsType),
+		launchTemplateConfig,
 		amiSelectorTerms,
 		blockDeviceMappings,
 		props.ClusterName,

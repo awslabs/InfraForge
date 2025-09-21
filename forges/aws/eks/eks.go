@@ -336,6 +336,31 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	// 创建 Karpenter IAM 资源
 	karpenterIam := createKarpenterIamResources(ctx.Stack, "KarpenterIam", cluster)
 
+	// 创建统一的 eks-admin ServiceAccount 和 ClusterRoleBinding（供各组件使用）
+	eksAdminSA, eksAdminCRB := createEksAdminResources(ctx.Stack, "EksAdmin", cluster, "eks-admin")
+
+	// 检查是否需要 Multi-NIC 支持
+	nodePoolProps := &KarpenterNodePoolProps{
+		GpuInstanceTypes:    eksInstance.KarpenterGpuInstanceTypes,
+		CpuInstanceTypes:    eksInstance.KarpenterCpuInstanceTypes,
+		NeuronInstanceTypes: eksInstance.KarpenterNeuronInstanceTypes,
+	}
+	
+	needsMultiNic := needsMultiNicSupport(nodePoolProps)
+	
+	// 升级 VPC CNI 并配置 Multi-NIC（如果需要）
+	var vpcCniManifest awseks.KubernetesManifest
+	if needsMultiNic {
+		vpcCniManifest = upgradeVpcCniAndConfigureMultiNic(ctx.Stack, "VpcCniUpgrade", &VpcCniUpgradeProps{
+			Cluster:        cluster,
+			ClusterName:    *cluster.ClusterName(),
+			VpcCniVersion:  "v1.20.1",
+			EnableMultiNic: true,
+		}, eksAdminSA, eksAdminCRB)
+	}
+
+	// EFA Launch Templates 已移除（Karpenter v1 不支持自定义 Launch Template）
+
 	// 部署 Karpenter Helm Chart
 	karpenterChart := deployKarpenterHelm(ctx.Stack, "KarpenterHelm", &KarpenterHelmProps{
 		ClusterName:      *cluster.ClusterName(),
@@ -397,10 +422,13 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		karpenterChart.Node().AddDependency(karpenterIam.ControllerRole)
 	}
 
-	// 确保所有 NodePool 在 Karpenter 部署后创建
+	// 确保所有 NodePool 在 Karpenter 和 VPC CNI 升级后创建
 	for _, nodePool := range nodePools {
 		if karpenterChart != nil {
 			nodePool.Node().AddDependency(karpenterChart)
+		}
+		if vpcCniManifest != nil {
+			nodePool.Node().AddDependency(vpcCniManifest)
 		}
 	}
 
@@ -506,13 +534,13 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		// 根据配置选择部署方式
 		if types.GetBoolValue(eksInstance.UseModernTrainingOperator, false) {
 			// 部署新版 Training Operator，传入版本参数
-			modernTrainingOp := deployModernTrainingOperator(ctx.Stack, cluster, trainingOperatorVersion)
+			modernTrainingOp := deployModernTrainingOperator(ctx.Stack, cluster, trainingOperatorVersion, eksAdminSA, eksAdminCRB)
 			if modernTrainingOp != nil {
 				modernTrainingOp.Node().AddDependency(awsAuthConfigMap)
 			}
 		} else {
 			// 部署 Legacy Training Operator
-			legacyTrainingOp := deployLegacyTrainingOperator(ctx.Stack, cluster, trainingOperatorVersion)
+			legacyTrainingOp := deployLegacyTrainingOperator(ctx.Stack, cluster, trainingOperatorVersion, eksAdminSA, eksAdminCRB)
 			if legacyTrainingOp != nil {
 				legacyTrainingOp.Node().AddDependency(awsAuthConfigMap)
 			}

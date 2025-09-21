@@ -14,9 +14,9 @@ import (
 
 // deployEfaDevicePlugin 部署EFA Kubernetes Device Plugin
 func deployEfaDevicePlugin(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.HelmChart {
-	// 如果未指定版本，使用默认版本0.5.8
+	// 如果未指定版本，使用默认版本0.5.17
 	if version == "" {
-		version = "0.5.8"
+		version = "0.5.17"
 	}
 
 	// 为Helm Chart添加v前缀（因为Helm Chart的tag需要v前缀）
@@ -29,8 +29,18 @@ func deployEfaDevicePlugin(stack awscdk.Stack, cluster awseks.Cluster, version s
 		Namespace:  jsii.String("kube-system"),
 		Version:    jsii.String(helmVersion),
 		Values: &map[string]interface{}{
-			"image": map[string]interface{}{
-				"tag": helmVersion,
+			"tolerations": []map[string]interface{}{
+				{
+					"key":      "nvidia.com/gpu",
+					"operator": "Equal",
+					"value":    "true",
+					"effect":   "NoSchedule",
+				},
+				{
+					"key":      "node.kubernetes.io/not-ready",
+					"operator": "Exists",
+					"effect":   "NoSchedule",
+				},
 			},
 		},
 	})
