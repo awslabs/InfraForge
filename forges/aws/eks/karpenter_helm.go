@@ -29,6 +29,7 @@ func deployKarpenterHelm(scope constructs.Construct, id string, props *Karpenter
 		Namespace: jsii.String("kube-system"),
 		Release: jsii.String("karpenter"),
 		Version: jsii.String(props.KarpenterVersion),
+		Wait: jsii.Bool(true),
 		Values: &map[string]interface{}{
 			"serviceAccount": map[string]interface{}{
 				"name": "karpenter-controller", // 指定服务账户名称
