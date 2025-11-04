@@ -50,6 +50,7 @@ type Ec2InstanceConfig struct {
 	EnableEfa                *bool  `json:"enableEfa,omitempty"`
 	EnaSrdEnabled            *bool  `json:"enaSrdEnabled,omitempty"`
 	NetworkCardCount         int    `json:"networkCardCount,omitempty"`  // 使用的网卡数量，用于多网卡实例类型
+	EniCount                 int    `json:"eniCount,omitempty"`          // 每个网卡的ENI数量
 	PurchaseOption           string `json:"purchaseOption,omitempty"`    // 购买选项：od, spot
 	SpotMaxPrice             string `json:"spotMaxPrice,omitempty"`      // Spot实例最高价格
 	CapacityBlockId          string `json:"capacityBlockId,omitempty"`   // Capacity Block ID（独立配置）
@@ -334,7 +335,7 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 	//throughput := *ebsDeviceProps.Throughput
 
 	// 检查是否需要创建启动模板
-	needsLaunchTemplate := types.GetBoolValue(ec2Instance.EnableEfa, false) || types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) || ec2Instance.EbsThroughput > 125 || ec2Instance.NetworkCardCount > 1 || ec2Instance.PurchaseOption == "spot" || ec2Instance.CapacityBlockId != ""
+	needsLaunchTemplate := types.GetBoolValue(ec2Instance.EnableEfa, false) || types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) || ec2Instance.EbsThroughput > 125 || ec2Instance.NetworkCardCount > 1 || ec2Instance.EniCount > 1 || ec2Instance.PurchaseOption == "spot" || ec2Instance.CapacityBlockId != ""
 
 	if needsLaunchTemplate {
 		// 获取原始EC2实例的L1构造
@@ -366,8 +367,8 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 			}
 		}
 
-		// 如果需要配置网络接口（EFA、EnaSrd或多网卡）
-		if types.GetBoolValue(ec2Instance.EnableEfa, false) || types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) || ec2Instance.NetworkCardCount > 1 {
+		// 如果需要配置网络接口（EFA、EnaSrd、多网卡或多ENI）
+		if types.GetBoolValue(ec2Instance.EnableEfa, false) || types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) || ec2Instance.NetworkCardCount > 1 || ec2Instance.EniCount > 1 {
 			// 获取子网ID和安全组IDs
 			subnetId := cfnInstance.SubnetId()
 			securityGroupIds := cfnInstance.SecurityGroupIds()
@@ -382,52 +383,55 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 				cardCount = 1
 			}
 
-			// 创建多个网络接口，每个网卡一个接口
-			networkInterfaces := make([]interface{}, cardCount)
-			for i := 0; i < cardCount; i++ {
-				var deviceIndex int
-				var networkCardIndex int
-				
-				if i == 0 {
-					// 主网络接口：NetworkCardIndex=0, DeviceIndex=0
-					deviceIndex = 0
-					networkCardIndex = 0
-				} else {
-					// 其他网络接口：NetworkCardIndex=i, DeviceIndex=1
-					deviceIndex = 1
-					networkCardIndex = i
-				}
+			// 确定每个网卡的ENI数量，默认为1
+			eniPerCard := ec2Instance.EniCount
+			if eniPerCard <= 0 {
+				eniPerCard = 1
+			}
 
-				networkInterface := &awsec2.CfnLaunchTemplate_NetworkInterfaceProperty{
-					DeviceIndex:      jsii.Number(deviceIndex),
-					NetworkCardIndex: jsii.Number(networkCardIndex),
-					SubnetId:         subnetId,
-					Groups:           securityGroupIds,
-					DeleteOnTermination: jsii.Bool(true),
-				}
+			// 计算总ENI数量
+			totalEnis := cardCount * eniPerCard
+			networkInterfaces := make([]interface{}, totalEnis)
 
-				// 如果启用EFA，所有网卡都配置为EFA类型
-				if types.GetBoolValue(ec2Instance.EnableEfa, false) {
-					if i == 0 {
-						// 主接口使用 "efa"
-						networkInterface.InterfaceType = jsii.String("efa")
-					} else {
-						// 其他接口使用 "efa-only"（如果支持的话，否则使用 "efa"）
-						networkInterface.InterfaceType = jsii.String("efa-only")
+			eniIndex := 0
+			for cardIndex := 0; cardIndex < cardCount; cardIndex++ {
+				for eniOnCard := 0; eniOnCard < eniPerCard; eniOnCard++ {
+					// 每个网卡内的ENI从deviceIndex=0开始
+					deviceIndex := eniOnCard
+					networkCardIndex := cardIndex
+
+					networkInterface := &awsec2.CfnLaunchTemplate_NetworkInterfaceProperty{
+						DeviceIndex:      jsii.Number(deviceIndex),
+						NetworkCardIndex: jsii.Number(networkCardIndex),
+						SubnetId:         subnetId,
+						Groups:           securityGroupIds,
+						DeleteOnTermination: jsii.Bool(true),
 					}
-				}
 
-				// 如果启用EnaSrd，所有网卡都启用EnaSrd
-				if types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) {
-					networkInterface.EnaSrdSpecification = &awsec2.CfnLaunchTemplate_EnaSrdSpecificationProperty{
-						EnaSrdEnabled: jsii.Bool(true),
-						EnaSrdUdpSpecification: &awsec2.CfnLaunchTemplate_EnaSrdUdpSpecificationProperty{
-							EnaSrdUdpEnabled: jsii.Bool(true),
-						},
+					// 如果启用EFA，所有网卡都配置为EFA类型
+					if types.GetBoolValue(ec2Instance.EnableEfa, false) {
+						if cardIndex == 0 && eniOnCard == 0 {
+							// 主接口使用 "efa"
+							networkInterface.InterfaceType = jsii.String("efa")
+						} else {
+							// 其他接口使用 "efa-only"（如果支持的话，否则使用 "efa"）
+							networkInterface.InterfaceType = jsii.String("efa-only")
+						}
 					}
-				}
 
-				networkInterfaces[i] = networkInterface
+					// 如果启用EnaSrd，所有网卡都启用EnaSrd
+					if types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) {
+						networkInterface.EnaSrdSpecification = &awsec2.CfnLaunchTemplate_EnaSrdSpecificationProperty{
+							EnaSrdEnabled: jsii.Bool(true),
+							EnaSrdUdpSpecification: &awsec2.CfnLaunchTemplate_EnaSrdUdpSpecificationProperty{
+								EnaSrdUdpEnabled: jsii.Bool(true),
+							},
+						}
+					}
+
+					networkInterfaces[eniIndex] = networkInterface
+					eniIndex++
+				}
 			}
 
 			launchTemplateData.NetworkInterfaces = networkInterfaces
@@ -582,6 +586,9 @@ func (e *Ec2Forge) MergeConfigs(defaults config.InstanceConfig, instance config.
 	}
 	if ec2Instance.NetworkCardCount != 0 {
 		merged.NetworkCardCount = ec2Instance.NetworkCardCount
+	}
+	if ec2Instance.EniCount != 0 {
+		merged.EniCount = ec2Instance.EniCount
 	}
 	if ec2Instance.PurchaseOption != "" {
 		merged.PurchaseOption = ec2Instance.PurchaseOption

@@ -69,6 +69,7 @@
                 "ebsOptimized": false,
                 "enclaveEnabled": false,
                 "networkCardCount": 1,
+                "eniCount": 1,
                 "purchaseOption": "od",
                 "spotMaxPrice": "",
                 "capacityBlockId": "",
