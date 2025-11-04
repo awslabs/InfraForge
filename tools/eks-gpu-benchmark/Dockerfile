@@ -12,6 +12,8 @@ ARG EFA_INSTALLER_VERSION=1.43.2
 ARG AWS_OFI_NCCL_VERSION=1.16.3
 ARG GDRCOPY_VERSION=2.5.1
 ARG NCCL_VERSION=2.28.3-1
+ARG NVBANDWIDTH_VERSION=0.8
+ARG NVSHMEM_VERSION=3.4.5
 
 # 系统更新和清理预装包
 RUN apt-get update -y && apt-get upgrade -y \
@@ -28,8 +30,8 @@ ENV OPAL_PREFIX=
 # 安装所有构建依赖和 EFA 运行时依赖
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     apt-utils autoconf automake build-essential check cmake curl git gcc gdb \
-    kmod libsubunit-dev libtool libhwloc-dev libpci-dev pkg-config \
-    python3-dev python3-setuptools unzip libboost-program-options-dev \
+    kmod libsubunit-dev libtool libhwloc-dev libpci-dev pkg-config sudo \
+    python3-dev python3-setuptools python3.12-venv unzip libboost-program-options-dev \
     pciutils tcl libnl-3-200 libnl-3-dev libnl-route-3-200 libnl-route-3-dev \
     udev dmidecode ethtool iproute2 libevent-core-2.1-7t64 libevent-pthreads-2.1-7t64 \
     libevent-dev environment-modules \
@@ -62,10 +64,37 @@ RUN set -e \
     && make -j $(nproc) src.build CUDA_HOME=/usr/local/cuda PREFIX=/infraforge \
        NVCC_GENCODE="-gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_90,code=sm_90 -gencode=arch=compute_100,code=sm_100" \
     && make PREFIX=/infraforge install && cd .. \
-    && rm -rf nccl-*
+    && rm -rf nccl-* \
+    \
+    # NVSHMEM
+    && curl -L https://developer.download.nvidia.com/compute/redist/nvshmem/${NVSHMEM_VERSION}/source/nvshmem_src_cuda12-all-all-${NVSHMEM_VERSION}.tar.gz -o nvshmem_src.txz \
+    && tar -xf nvshmem_src.txz \
+    && cd nvshmem_src && mkdir -p build && cd build \
+    && cmake -DNVSHMEM_PREFIX=/infraforge -DCMAKE_INSTALL_PREFIX=/infraforge \
+       -DCUDA_HOME=/usr/local/cuda \
+       -DCMAKE_BUILD_TYPE=Release \
+       -DCMAKE_CUDA_ARCHITECTURES="75;80;86;89;90;100" \
+       -DCMAKE_CUDA_FLAGS="-Wno-deprecated-gpu-targets" \
+       -DNVSHMEM_USE_GDRCOPY=1 -DGDRCOPY_HOME=/infraforge \
+       -DNVSHMEM_USE_NCCL=1 -DNCCL_HOME=/infraforge \
+       -DNVSHMEM_LIBFABRIC_SUPPORT=1 -DLIBFABRIC_HOME=/opt/amazon/efa \
+       -DNVSHMEM_MPI_SUPPORT=1 -DMPI_HOME=/opt/amazon/openmpi \
+       -DNVSHMEM_PMIX_SUPPORT=1 -DPMIX_HOME=/opt/amazon/pmix \
+       -DNVSHMEM_BUILD_TESTS=1 -DNVSHMEM_BUILD_EXAMPLES=1 \
+       -DNVSHMEM_IBRC_SUPPORT=1 -DNVSHMEM_IBGDA_SUPPORT=1 \
+       -DNVSHMEM_DEBUG=WARN -DNVSHMEM_TRACE=1 .. \
+    && make -j $(nproc) && make install && cd ../.. \
+    && rm -rf nvshmem_src* \
+    \
+    # 创建 NVSHMEM 工具的便捷链接
+    && ln -sf /infraforge/bin/perftest/device/pt-to-pt/* /infraforge/bin/ \
+    && ln -sf /infraforge/bin/perftest/device/coll/* /infraforge/bin/ \
+    && ln -sf /infraforge/bin/perftest/device/tile/* /infraforge/bin/ \
+    && ln -sf /infraforge/bin/perftest/host/pt-to-pt/* /infraforge/bin/ \
+    && ln -sf /infraforge/bin/perftest/host/coll/* /infraforge/bin/ \
+    && ln -sf /infraforge/bin/perftest/host/init/* /infraforge/bin/
 
 # 构建网络和 MPI 工具
-SHELL ["/bin/bash", "-c"]
 RUN set -e \
     # AWS-OFI-NCCL
     && curl -OL https://github.com/aws/aws-ofi-nccl/releases/download/v${AWS_OFI_NCCL_VERSION}/aws-ofi-nccl-${AWS_OFI_NCCL_VERSION}.tar.gz \
@@ -85,10 +114,10 @@ RUN set -e \
     && cp build/*_perf /infraforge/bin/ && cd .. \
     && rm -rf nccl-tests-* \
     \
-    # nvbandwidth v0.8 - GPU 内存带宽测试工具 (支持多节点)
-    && curl -JLOk https://github.com/NVIDIA/nvbandwidth/archive/refs/tags/v0.8.tar.gz \
-    && tar xf nvbandwidth-0.8.tar.gz \
-    && cd nvbandwidth-0.8 \
+    # nvbandwidth - GPU 内存带宽测试工具 (支持多节点)
+    && curl -JLOk https://github.com/NVIDIA/nvbandwidth/archive/refs/tags/v${NVBANDWIDTH_VERSION}.tar.gz \
+    && tar xf nvbandwidth-${NVBANDWIDTH_VERSION}.tar.gz \
+    && cd nvbandwidth-${NVBANDWIDTH_VERSION} \
     && PATH=/opt/amazon/openmpi/bin:$PATH cmake -DMULTINODE=1 . \
     && make -j $(nproc) \
     && cp nvbandwidth /infraforge/bin/ && cd .. \
@@ -109,7 +138,6 @@ RUN set -e \
     && ln -sf /infraforge/libexec/osu-micro-benchmarks/xccl/pt2pt/* /infraforge/bin/ \
     && ln -sf /infraforge/libexec/osu-micro-benchmarks/xccl/collective/* /infraforge/bin/ \
     && cd .. && rm -rf osu-micro-benchmarks-*
-SHELL ["/bin/sh", "-c"]
 
 # 构建 I/O 和网络测试工具
 RUN set -e \
@@ -145,6 +173,8 @@ RUN set -e \
     \
     # 最终清理
     && apt-get autoremove -y && apt-get clean \
+    && rm -f /infraforge/License.txt /infraforge/changelog /infraforge/git_commit.txt /infraforge/version.txt \
+    && find /infraforge -type f -executable ! -type l -exec strip {} \; \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # 运行时镜像 - 只保留必要文件
@@ -153,9 +183,14 @@ ARG EFA_INSTALLER_VERSION=1.43.2
 
 # 安装运行时依赖
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    iperf3 curl python3 wget git fio stress-ng netcat-openbsd \
+    iperf3 curl python3 python3.12-venv wget git fio stress-ng netcat-openbsd nvtop \
     pciutils tcl libnl-3-200 libnl-route-3-200 udev dmidecode ethtool iproute2 \
     libevent-core-2.1-7t64 libevent-pthreads-2.1-7t64 libhwloc15 unzip apt-utils \
+    && mkdir -p /infraforge/bin \
+    && python3 -m venv /infraforge/python/venv \
+    && /infraforge/python/venv/bin/pip install --upgrade pip setuptools wheel \
+    && ln -sf /infraforge/python/venv/bin/python /infraforge/bin/ \
+    && ln -sf /infraforge/python/venv/bin/pip /infraforge/bin/ \
     && apt-get remove -y --allow-change-held-packages libnccl2 || true \
     && apt-get autoremove -y
 
@@ -194,12 +229,16 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/extras/CUPTI/lib64:/opt/amazon/openmpi/lib:/
     NCCL_SOCKET_IFNAME=^docker,lo,veth \
     NCCL_CROSS_NIC=1 \
     PMIX_MCA_gds=hash \
-    NCCL_DEBUG=INFO
+    NCCL_DEBUG=INFO \
+    NVSHMEM_HOME=/infraforge \
+    NVSHMEM_REMOTE_TRANSPORT=libfabric \
+    NVSHMEM_LIBFABRIC_PROVIDER=efa
 
 # 创建测试脚本
 RUN echo '#!/bin/bash\n\
 echo "=== InfraForge HPC Performance Test Suite ==="\n\
 echo "NCCL Tests: all_reduce_perf, all_gather_perf, etc."\n\
+echo "NVSHMEM: nvshmem_test, nvshmem_perf_test, etc."\n\
 echo "OSU Benchmarks: osu_latency, osu_bw, osu_allreduce, etc."\n\
 echo "IOR: ior (I/O performance)"\n\
 echo "fio: Flexible I/O tester"\n\

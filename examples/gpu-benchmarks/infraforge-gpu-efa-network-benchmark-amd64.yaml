@@ -105,6 +105,32 @@ spec:
               mkdir -p "$TEMP_DIR" || { echo "Failed to create temp directory: $TEMP_DIR"; exit 1; }
               echo "Results will be saved to: $RESULT_DIR"
               
+              # EFA 网络性能测试 (使用 SRD 协议)
+              echo "zzz *** $(date) *** Starting EFA network performance tests..."
+              
+              # 获取worker IP地址
+              WORKER0_IP=$(kubectl get pod infraforge-gpu-efa-amd64-worker-0 -o jsonpath='{.status.podIP}')
+              WORKER1_IP=$(kubectl get pod infraforge-gpu-efa-amd64-worker-1 -o jsonpath='{.status.podIP}')
+              echo "Worker 0 IP: $WORKER0_IP"
+              echo "Worker 1 IP: $WORKER1_IP"
+              
+              # EFA 信息检查
+              echo "EFA device information:"
+              mpirun --allow-run-as-root -n 1 -H infraforge-gpu-efa-amd64-worker-0 fi_info -p efa \
+                     2>&1 | tee "$TEMP_DIR/efa-device-info.log"
+              
+              # EFA Write 带宽测试 (使用 SRD, 全尺寸测试)
+              echo "EFA Write Bandwidth test using SRD (all sizes 2B-8M)"
+              mpirun --allow-run-as-root -n 1 -H infraforge-gpu-efa-amd64-worker-0 ib_write_bw -x 0 -F --report_gbits -q 8 -c SRD -a : \
+                     -n 1 -H infraforge-gpu-efa-amd64-worker-1 ib_write_bw -x 0 -F --report_gbits -q 8 -c SRD -a $WORKER0_IP \
+                     2>&1 | tee "$TEMP_DIR/efa-write-bandwidth-results.log"
+              
+              # fi_pingpong 测试 (libfabric原生测试)
+              echo "EFA fi_pingpong test"
+              mpirun --allow-run-as-root -n 1 -H infraforge-gpu-efa-amd64-worker-0 fi_pingpong -p efa -e rdm : \
+                     -n 1 -H infraforge-gpu-efa-amd64-worker-1 fi_pingpong -p efa -e rdm $WORKER0_IP \
+                     2>&1 | tee "$TEMP_DIR/efa-fi-pingpong-results.log"
+              
               # 运行 NCCL 测试并保存结果 (使用 EFA)
               echo "zzz *** $(date) *** Starting NCCL All-Reduce test (EFA enabled)..."
                 #-x FI_PROVIDER=efa \
@@ -113,6 +139,7 @@ spec:
                 #-x NCCL_ALGO=Ring \
                 #-x NCCL_NET_PLUGIN=none # tcp \
               mpirun -n $TOTAL_GPUS -N $GPUS \
+                -x NCCL_CROSS_NIC=0 \
                 --bind-to none \
                 --allow-run-as-root \
                 all_reduce_perf -b 8 -e 8G -f 2 -g 1 -c 1 -n 20 \
