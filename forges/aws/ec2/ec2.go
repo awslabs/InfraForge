@@ -217,6 +217,8 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 			return nil
 		}
 		ec2Instance.OsImage = osImage
+		fmt.Printf("INFO: Instance '%s' using current latest AMI '%s'. To prevent automatic updates, set \"osImage\": \"%s\" in config.\n", 
+			ec2Instance.GetID(), osImage, osImage)
 	}
 
 	deviceName := ec2Instance.EbsDeviceName
