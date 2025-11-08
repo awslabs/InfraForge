@@ -134,6 +134,9 @@ func (fm *ForgeManager) processForge(typ string, rawDefaults json.RawMessage, in
 
 	// 执行 forge 操作
 	iforge := forge.Create(ctx)
+	if iforge == nil {
+		return fmt.Errorf("failed to create forge for %s", merged.GetID())
+	}
 	
 	// 存储依赖，使用 "type:id" 格式
 	trimIndex := false

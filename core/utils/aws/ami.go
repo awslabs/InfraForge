@@ -85,6 +85,10 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 				},
 			},
 			"debian": {
+				"10": {
+					"aarch64": "debian-10-arm64-*",
+					"x86_64":  "debian-10-amd64-*",
+				},
 				"11": {
 					"aarch64": "debian-11-arm64-*",
 					"x86_64":  "debian-11-amd64-*",
@@ -93,16 +97,12 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 					"aarch64": "debian-12-arm64-*",
 					"x86_64":  "debian-12-amd64-*",
 				},
+				"13": {
+					"aarch64": "debian-13-arm64-*",
+					"x86_64":  "debian-13-amd64-*",
+				},
 			},
 			"centos": {
-				"7": {
-					"aarch64": "CentOS Linux 7 aarch64 *",
-					"x86_64":  "CentOS Linux 7 x86_64 *",
-				},
-				"8": {
-					"aarch64": "CentOS Stream 8 aarch64 *",
-					"x86_64":  "CentOS Stream 8 x86_64 *",
-				},
 				"9": {
 					"aarch64": "CentOS Stream 9 aarch64 *",
 					"x86_64":  "CentOS Stream 9 x86_64 *",
@@ -120,6 +120,10 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 					"aarch64": "suse-sles-15-sp5-*-hvm-ssd-arm64",
 					"x86_64":  "suse-sles-15-sp5-*-hvm-ssd-x86_64",
 				},
+				"16": {
+					"aarch64": "suse-sles-16-0-*-hvm-ssd-arm64",
+					"x86_64":  "suse-sles-16-0-*-hvm-ssd-x86_64",
+				},
 			},
 			"rocky": {
 				"8": {
@@ -129,6 +133,10 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 				"9": {
 					"x86_64": "Rocky-9-EC2-LVM-9*.x86_64*",
 					"aarch64": "Rocky-9-EC2-LVM-9*.aarch64*",
+				},
+				"10": {
+					"x86_64": "Rocky-10-EC2-Base-10*.x86_64*",
+					"aarch64": "Rocky-10-EC2-Base-10*.aarch64*",
 				},
 			},
 			"windows": {
@@ -176,23 +184,14 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 				},
 			},
 			"debian": {
+				"10": {
+					"x86_64":  "debian-10-final-*",
+				},
 				"11": {
-					"aarch64": "debian-11-arm64-*",
-					"x86_64":  "debian-11-amd64-*",
+					"x86_64":  "debian-11-final-*",
 				},
 				"12": {
-					"aarch64": "debian-12-arm64-*",
-					"x86_64":  "debian-12-amd64-*",
-				},
-			},
-			"centos": {
-				"7": {
-					"aarch64": "centos7.5-*",
-					"x86_64": "centos7.5-*",
-				},
-				"8": {
-					"aarch64": "CentOS-8-ec2-*",
-					"x86_64": "CentOS-8-ec2-*",
+					"x86_64":  "debian-12-final-*",
 				},
 			},
 			"suse": {
@@ -202,6 +201,10 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 				"15": {
 					"aarch64": "suse-sles-15-sp5-*-hvm-ssd-arm64",
 					"x86_64":  "suse-sles-15-sp5-*-hvm-ssd-x86_64",
+				},
+				"16": {
+					"aarch64": "suse-sles-16-0-*-hvm-ssd-arm64",
+					"x86_64":  "suse-sles-16-0-*-hvm-ssd-x86_64",
 				},
 			},
 			"rocky": {

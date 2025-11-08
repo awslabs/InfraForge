@@ -150,7 +150,11 @@ func (e *Ec2Forge) Create(ctx *interfaces.ForgeContext) interface{} {
 		instances = make([]awsec2.Instance, ec2Instance.InstanceCount)
 		for i := 0; i < ec2Instance.InstanceCount; i++ {
 			ec2Instance.SetID(fmt.Sprintf("%s.%d", origId, i + 1))
-			instances[i] = createEc2Instance(ctx.Stack, ec2Instance, ctx.VPC, ctx.SubnetType, pg, ctx.SecurityGroups.Default, ctx.Dependencies, ctx.DualStack) 
+			instance := createEc2Instance(ctx.Stack, ec2Instance, ctx.VPC, ctx.SubnetType, pg, ctx.SecurityGroups.Default, ctx.Dependencies, ctx.DualStack)
+			if instance == nil {
+				return nil
+			}
+			instances[i] = instance 
 
 			// 可选：为每个实例单独创建一个参数
 			awsssm.NewStringParameter(ctx.Stack, jsii.String(fmt.Sprintf("%s-hostInfo-%d", origId, i)), &awsssm.StringParameterProps{
@@ -163,7 +167,11 @@ func (e *Ec2Forge) Create(ctx *interfaces.ForgeContext) interface{} {
 		}
 	} else {
 		instances = make([]awsec2.Instance, 1)
-		instances[0] = createEc2Instance(ctx.Stack, ec2Instance, ctx.VPC, ctx.SubnetType, pg, ctx.SecurityGroups.Default, ctx.Dependencies, ctx.DualStack) 
+		instance := createEc2Instance(ctx.Stack, ec2Instance, ctx.VPC, ctx.SubnetType, pg, ctx.SecurityGroups.Default, ctx.Dependencies, ctx.DualStack)
+		if instance == nil {
+			return nil
+		}
+		instances[0] = instance
 	}
 
 	e.ec2Instances = instances
@@ -212,8 +220,8 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 
 	if ec2Instance.OsImage == "" {
 		osImage, err := lookup.FindAMI()
-		if err != nil {
-			fmt.Println("Error:", err)
+		if err != nil || osImage == "" {
+			fmt.Printf("Error: No AMI found for %s %s %s\n", ec2Instance.OsName, ec2Instance.OsVersion, ec2Instance.OsArch)
 			return nil
 		}
 		ec2Instance.OsImage = osImage

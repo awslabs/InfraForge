@@ -66,7 +66,7 @@ func main() {
 	for _, instanceId := range infraConfig.EnabledForges {
 		if err := forgeManager.CreateForge(instanceId, infraConfig); err != nil {
 			fmt.Printf("Error creating forge %s: %v\n", instanceId, err)
-			continue
+			os.Exit(1)
 		}
 	}
 
