@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/awslabs/InfraForge/core/utils/types"
 	"github.com/aws/jsii-runtime-go"
 )
 
@@ -42,28 +41,28 @@ func CreateOrGetPlacementGroup(stack awscdk.Stack, pgName string, strategy strin
 	}
 	
 	fullPgName := fmt.Sprintf("%s-%s", *awscdk.Aws_STACK_NAME(), pgName)
-	pgKey := fmt.Sprintf("%s-%s", fullPgName, strategy)
-	pgHash := types.HashString(pgKey)
 	
 	placementGroupMutex.Lock()
 	defer placementGroupMutex.Unlock()
 	
-	if cachedPG, exists := placementGroupCache[pgHash]; exists {
+	cacheKey := fmt.Sprintf("%s-%s", pgName, strategy)
+	if cachedPG, exists := placementGroupCache[cacheKey]; exists {
 		return cachedPG
 	}
 	
-	constructId := fmt.Sprintf("PlacementGroup-%s", pgHash)
+	constructId := fmt.Sprintf("PlacementGroup-%s", pgName)
 	var placementGroup awsec2.IPlacementGroup
 	
 	if placementGroupExistsInAWS(fullPgName) {
 		placementGroup = awsec2.PlacementGroup_FromPlacementGroupName(stack, jsii.String(constructId), jsii.String(fullPgName))
 	} else {
-		placementGroup = awsec2.NewPlacementGroup(stack, jsii.String(constructId), &awsec2.PlacementGroupProps{
+		pg := awsec2.NewPlacementGroup(stack, jsii.String(constructId), &awsec2.PlacementGroupProps{
 			PlacementGroupName: jsii.String(fullPgName),
 			Strategy:          awsec2.PlacementGroupStrategy(strategy),
 		})
+		placementGroup = pg
 	}
 	
-	placementGroupCache[pgHash] = placementGroup
+	placementGroupCache[cacheKey] = placementGroup
 	return placementGroup
 }
