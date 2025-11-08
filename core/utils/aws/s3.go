@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3"
@@ -53,6 +54,22 @@ func CreateS3ObjectFromUrl(stack awscdk.Stack, id string, bucketName string, key
 	content, err := io.ReadAll(resp.Body)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to read content from %s: %v", url, err))
+	}
+	
+	return awss3deployment.NewBucketDeployment(stack, jsii.String(id), &awss3deployment.BucketDeploymentProps{
+		Sources: &[]awss3deployment.ISource{
+			awss3deployment.Source_Data(jsii.String(key), jsii.String(string(content)), nil),
+		},
+		DestinationBucket: awss3.Bucket_FromBucketName(stack, jsii.String(id+"-bucket"), jsii.String(bucketName)),
+	})
+}
+
+// CreateS3ObjectFromFile 从本地文件创建 S3 对象
+func CreateS3ObjectFromFile(stack awscdk.Stack, id string, bucketName string, key string, filePath string) awss3deployment.BucketDeployment {
+	// 读取本地文件内容
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to read local file %s: %v", filePath, err))
 	}
 	
 	return awss3deployment.NewBucketDeployment(stack, jsii.String(id), &awss3deployment.BucketDeploymentProps{

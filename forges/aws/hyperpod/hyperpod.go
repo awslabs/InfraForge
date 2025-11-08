@@ -110,10 +110,14 @@ func (h *HyperPodForge) createHyperPodCluster(hyperPodInstance *HyperPodInstance
 		// 创建 S3 桶（CDK 自动生成唯一名称）
 		bucket := awss3.NewBucket(ctx.Stack, jsii.String(fmt.Sprintf("%s-lifecycle", hyperPodInstance.GetID())), nil)
 		
-		// 从 GitHub 下载官方脚本到 S3
-		githubUrl := "https://raw.githubusercontent.com/aws-samples/awsome-distributed-training/refs/heads/main/1.architectures/7.sagemaker-hyperpod-eks/LifecycleScripts/base-config/on_create.sh"
-		aws.CreateS3ObjectFromUrl(ctx.Stack, fmt.Sprintf("%s-download-lifecycle", hyperPodInstance.GetID()), 
-			*bucket.BucketName(), "on_create.sh", githubUrl)
+		// 从本地文件上传脚本到 S3
+		aws.CreateS3ObjectFromFile(ctx.Stack, fmt.Sprintf("%s-upload-lifecycle", hyperPodInstance.GetID()), 
+			*bucket.BucketName(), "on_create.sh", "on_create.sh")
+		
+		// 原来从 GitHub 下载的代码（已注释）
+		// githubUrl := "https://raw.githubusercontent.com/aws-samples/awsome-distributed-training/refs/heads/main/1.architectures/7.sagemaker-hyperpod-eks/LifecycleScripts/base-config/on_create.sh"
+		// aws.CreateS3ObjectFromUrl(ctx.Stack, fmt.Sprintf("%s-download-lifecycle", hyperPodInstance.GetID()), 
+		//	*bucket.BucketName(), "on_create.sh", githubUrl)
 		
 		lifeCycleConfig = &awssagemaker.CfnCluster_ClusterLifeCycleConfigProperty{
 			OnCreate:    jsii.String("on_create.sh"),
