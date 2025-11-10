@@ -306,7 +306,7 @@ func (h *HyperPodForge) createHyperPodCluster(hyperPodInstance *HyperPodInstance
 	}
 
 	// Add cluster role if created
-	// Note: ClusterRole field not yet available in CDK, will use escape hatch below
+	// ClusterRole will be set in AutoScaling configuration if needed
 
 	// Optional properties
 	if orchestrator != nil {
@@ -329,21 +329,6 @@ func (h *HyperPodForge) createHyperPodCluster(hyperPodInstance *HyperPodInstance
 		clusterProps.NodeRecovery = jsii.String(hyperPodInstance.NodeRecovery)
 	}
 	
-	// TODO: AutoScaling and ClusterRole support will be added when CDK is updated
-	// Currently not supported in CDK version
-	// if hyperPodInstance.AutoScalingMode != "" {
-	//     autoScaling := &awssagemaker.CfnCluster_AutoScalingProperty{
-	//         Mode: jsii.String(hyperPodInstance.AutoScalingMode),
-	//     }
-	//     if hyperPodInstance.AutoScalerType != "" {
-	//         autoScaling.AutoScalerType = jsii.String(hyperPodInstance.AutoScalerType)
-	//     }
-	//     clusterProps.AutoScaling = autoScaling
-	// }
-	// if hyperPodInstance.ClusterRole != "" {
-	//     clusterProps.ClusterRole = jsii.String(hyperPodInstance.ClusterRole)
-	// }
-
 	if orchestrator != nil {
 		clusterProps.Orchestrator = orchestrator
 	}
@@ -381,23 +366,25 @@ func (h *HyperPodForge) createHyperPodCluster(hyperPodInstance *HyperPodInstance
 		clusterProps.RestrictedInstanceGroups = []interface{}{restrictedInstanceGroup}
 	}
 
-	// Create the cluster
-	cluster := awssagemaker.NewCfnCluster(ctx.Stack, jsii.String(hyperPodInstance.GetID()), clusterProps)
-
-	// Add AutoScaling support using escape hatch (CDK doesn't support it yet)
+	// Add AutoScaling configuration if enabled
 	if orchestrator != nil && hyperPodInstance.EnableKarpenterScaling != nil && *hyperPodInstance.EnableKarpenterScaling {
 		// Only enable autoscaling for EKS orchestrator when explicitly enabled
-		cluster.AddPropertyOverride(jsii.String("AutoScaling"), map[string]interface{}{
-			"Mode":           "Enable",
-			"AutoScalerType": "Karpenter",
-		})
+		clusterProps.AutoScaling = &awssagemaker.CfnCluster_ClusterAutoScalingConfigProperty{
+			Mode:           jsii.String("Enable"),
+			AutoScalerType: jsii.String("Karpenter"),
+		}
 		
 		// Add ClusterRole for autoscaling
 		if clusterRole != nil {
-			cluster.AddPropertyOverride(jsii.String("ClusterRole"), clusterRole.RoleArn())
+			clusterProps.ClusterRole = clusterRole.RoleArn()
 		}
+	}
 
-		// Create HyperPod NodeClass and NodePool for Karpenter autoscaling
+	// Create the cluster
+	cluster := awssagemaker.NewCfnCluster(ctx.Stack, jsii.String(hyperPodInstance.GetID()), clusterProps)
+
+	// Create HyperPod NodeClass and NodePool for Karpenter autoscaling if enabled
+	if orchestrator != nil && hyperPodInstance.EnableKarpenterScaling != nil && *hyperPodInstance.EnableKarpenterScaling {
 		createHyperPodKarpenterResources(hyperPodInstance, cluster)
 	}
 
