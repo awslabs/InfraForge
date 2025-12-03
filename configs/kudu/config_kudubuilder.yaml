@@ -24,9 +24,9 @@ forges:
       keyName: aws-infra-forge
       detailedMonitoring: false
       ebsVolumeType: gp3
-      ebsSize: 30
+      ebsSize: "30"
       ebsThroughput: 125
-      ebsIops: 3000
+      ebsIops: "3000"
       ebsOptimized: false
       enclaveEnabled: false
       networkCardCount: 1
@@ -51,11 +51,11 @@ forges:
       - id: kudubuilderx86
         instanceType: c6a.16xlarge
         osArch: x86_64
-        ebsSize: 300
+        ebsSize: "300"
         instanceCount: 1
         userDataToken: kudubuilder-nonroot
       - id: kudubuilderaarch64
         instanceType: c7g.16xlarge
-        ebsSize: 300
+        ebsSize: "300"
         instanceCount: 1
         userDataToken: kudubuilder-nonroot

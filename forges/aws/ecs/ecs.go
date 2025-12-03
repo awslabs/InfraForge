@@ -152,14 +152,14 @@ func (e *EcsForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	// ECS 所有 AMI(bottlerocket|Amazon Linux 2/2023) 的默认根设备名称是 /dev/xvda, 直接使用
 	deviceName := "/dev/xvda" 
 
-	// 创建配置
+	// 创建配置（ECS 只支持单磁盘，转换为字符串）
 	ebsConfig := &aws.EbsConfig{
-		VolumeType:    ecsInstance.EbsVolumeType,
-		Iops:          ecsInstance.EbsIops,
-		Size:          ecsInstance.EbsSize,
-		Throughput:    ecsInstance.EbsThroughput,
+		VolumeTypes:   ecsInstance.EbsVolumeType,
+		Iops:          fmt.Sprintf("%d", ecsInstance.EbsIops),
+		Sizes:         fmt.Sprintf("%d", ecsInstance.EbsSize),
+		Throughputs:   fmt.Sprintf("%d", ecsInstance.EbsThroughput),
 		Optimized:     types.GetBoolValue(ecsInstance.EbsOptimized, false),
-		DeviceName:    deviceName,
+		RootDevice:    deviceName,
 	}
 
 	// 调用函数

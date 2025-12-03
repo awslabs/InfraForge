@@ -24,9 +24,9 @@ forges:
       keyName: aws-infra-forge
       detailedMonitoring: false
       ebsVolumeType: gp3
-      ebsSize: 30
-      ebsThroughput: 125
-      ebsIops: 3000
+      ebsSize: "30"
+      ebsThroughput: "125"
+      ebsIops: "3000"
       ebsOptimized: false
       enclaveEnabled: false
       networkCardCount: 1
@@ -53,6 +53,7 @@ forges:
         instanceCount: 1
         placementGroup: cpg
         placementGroupStrategy: CLUSTER
+        bandwidthWeighting: vpc-1
         enableEfa: false
         enaSrdEnabled: false
         userDataToken: netbench_server
@@ -61,6 +62,7 @@ forges:
         instanceCount: 1
         placementGroup: cpg
         placementGroupStrategy: CLUSTER
+        bandwidthWeighting: vpc-1
         enableEfa: false
         enaSrdEnabled: false
         dependsOn: EC2:netbenchserver

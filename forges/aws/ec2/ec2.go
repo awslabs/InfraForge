@@ -41,9 +41,9 @@ type Ec2InstanceConfig struct {
 	DetailedMonitoring       *bool  `json:"detailedMonitoring,omitempty"`
 	DependsOn                string `json:"dependsOn,omitempty"`
 	EbsDeviceName            string `json:"ebsDeviceName,omitempty"`
-	EbsIops                  int    `json:"ebsIops,omitempty"`
-	EbsSize                  int    `json:"ebsSize,omitempty"`
-	EbsThroughput            int    `json:"ebsThroughput,omitempty"`
+	EbsIops                  string `json:"ebsIops,omitempty"`
+	EbsSize                  string `json:"ebsSize,omitempty"`
+	EbsThroughput            string `json:"ebsThroughput,omitempty"`
 	EbsVolumeType            string `json:"ebsVolumeType,omitempty"`
 	EbsOptimized             *bool  `json:"ebsOptimized,omitempty"`
 	EnclaveEnabled           *bool  `json:"enclaveEnabled,omitempty"`
@@ -67,6 +67,7 @@ type Ec2InstanceConfig struct {
 	UserDataToken            string `json:"userDataToken,omitempty"`
 	UserDataScriptPath       string `json:"userDataScriptPath,omitempty"`
 	StoreInstanceInfo        *bool  `json:"storeInstanceInfo,omitempty"`
+	BandwidthWeighting       string `json:"bandwidthWeighting,omitempty"`       // 带宽权重: "default", "vpc-1", "ebs-1"
 }
 
 /*
@@ -252,12 +253,12 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 	iKeyPair = aws.CreateOrGetKeyPair(stack, keyName, ec2Instance.OsType)
 	// 创建配置
 	ebsConfig := &aws.EbsConfig{
-		VolumeType:    ec2Instance.EbsVolumeType,
+		VolumeTypes:   ec2Instance.EbsVolumeType,
 		Iops:          ec2Instance.EbsIops,
-		Size:          ec2Instance.EbsSize,
-		//Throughput:    ec2Instance.EbsThroughput,
+		Sizes:         ec2Instance.EbsSize,
+		Throughputs:   ec2Instance.EbsThroughput,
 		Optimized:     types.GetBoolValue(ec2Instance.EbsOptimized, false),
-		DeviceName:    deviceName,
+		RootDevice:    deviceName,
 	}
 
 	if types.GetBoolValue(ec2Instance.Debug, false) {
@@ -345,7 +346,8 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 	//throughput := *ebsDeviceProps.Throughput
 
 	// 检查是否需要创建启动模板
-	needsLaunchTemplate := types.GetBoolValue(ec2Instance.EnableEfa, false) || types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) || ec2Instance.EbsThroughput > 125 || ec2Instance.NetworkCardCount > 1 || ec2Instance.EniCount > 1 || ec2Instance.PurchaseOption == "spot" || ec2Instance.CapacityBlockId != ""
+	needsHighThroughput := aws.NeedsLaunchTemplateForThroughput(ec2Instance.EbsVolumeType, ec2Instance.EbsThroughput)
+	needsLaunchTemplate := types.GetBoolValue(ec2Instance.EnableEfa, false) || types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) || needsHighThroughput || ec2Instance.NetworkCardCount > 1 || ec2Instance.EniCount > 1 || ec2Instance.PurchaseOption == "spot" || ec2Instance.CapacityBlockId != "" || ec2Instance.BandwidthWeighting != ""
 
 	if needsLaunchTemplate {
 		// 获取原始EC2实例的L1构造
@@ -448,19 +450,22 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 		}
 
 		// 如果需要配置高EBS吞吐量
-		if ec2Instance.EbsThroughput > 125 {
-			// 创建仅包含Throughput设置的EBS配置
-			ebsOverride := &awsec2.CfnLaunchTemplate_EbsProperty{
-				Throughput: jsii.Number(ec2Instance.EbsThroughput),
+		if needsHighThroughput {
+			blockDeviceMappings := aws.CreateLaunchTemplateBlockDeviceMappings(
+				ec2Instance.EbsVolumeType,
+				ec2Instance.EbsThroughput,
+				deviceName,
+			)
+			if len(blockDeviceMappings) > 0 {
+				launchTemplateData.BlockDeviceMappings = blockDeviceMappings
 			}
+		}
 
-			// 创建块设备映射，只覆盖需要的属性
-			blockDeviceMapping := &awsec2.CfnLaunchTemplate_BlockDeviceMappingProperty{
-				DeviceName: jsii.String(deviceName),
-				Ebs: ebsOverride,
+		// 如果需要配置带宽权重
+		if ec2Instance.BandwidthWeighting != "" {
+			launchTemplateData.NetworkPerformanceOptions = &awsec2.CfnLaunchTemplate_NetworkPerformanceOptionsProperty{
+				BandwidthWeighting: jsii.String(ec2Instance.BandwidthWeighting),
 			}
-
-			launchTemplateData.BlockDeviceMappings = []interface{}{blockDeviceMapping}
 		}
 
 		// 创建启动模板
@@ -570,13 +575,13 @@ func (e *Ec2Forge) MergeConfigs(defaults config.InstanceConfig, instance config.
 	if ec2Instance.EbsDeviceName != "" {
 		merged.EbsDeviceName = ec2Instance.EbsDeviceName
 	}
-	if ec2Instance.EbsIops != 0 {
+	if ec2Instance.EbsIops != "" {
 		merged.EbsIops = ec2Instance.EbsIops
 	}
-	if ec2Instance.EbsSize != 0 {
+	if ec2Instance.EbsSize != "" {
 		merged.EbsSize = ec2Instance.EbsSize
 	}
-	if ec2Instance.EbsThroughput != 0 {
+	if ec2Instance.EbsThroughput != "" {
 		merged.EbsThroughput = ec2Instance.EbsThroughput
 	}
 	if ec2Instance.EbsVolumeType != "" {
@@ -683,6 +688,9 @@ func (e *Ec2Forge) MergeConfigs(defaults config.InstanceConfig, instance config.
 	}
 	if ec2Instance.UserDataScriptPath != "" {
 		merged.UserDataScriptPath = ec2Instance.UserDataScriptPath
+	}
+	if ec2Instance.BandwidthWeighting != "" {
+		merged.BandwidthWeighting = ec2Instance.BandwidthWeighting
 	}
 
 	return merged

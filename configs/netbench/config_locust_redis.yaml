@@ -47,9 +47,9 @@ forges:
       keyName: aws-infra-forge
       detailedMonitoring: false
       ebsVolumeType: gp3
-      ebsSize: 30
-      ebsThroughput: 125
-      ebsIops: 3000
+      ebsSize: "30"
+      ebsThroughput: "125"
+      ebsIops: "3000"
       ebsOptimized: false
       enclaveEnabled: false
       networkCardCount: 1
@@ -76,7 +76,6 @@ forges:
         instanceCount: 1
         security: private
         subnet: private
-        ebsSize: 30
         userDataToken: redis
         enclaveEnabled: false
       - id: locustMaster
@@ -84,7 +83,6 @@ forges:
         instanceCount: 1
         security: private
         subnet: private
-        ebsSize: 30
         dependsOn: EC2:redis
         userDataToken: locust-redis_master
         enclaveEnabled: false
@@ -93,7 +91,6 @@ forges:
         instanceCount: 3
         security: private
         subnet: private
-        ebsSize: 30
         dependsOn: EC2:locustMaster
         userDataToken: locust-redis_worker
         enclaveEnabled: false

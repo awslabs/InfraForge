@@ -24,9 +24,9 @@ forges:
       keyName: aws-infra-forge
       detailedMonitoring: false
       ebsVolumeType: gp3
-      ebsSize: 30
-      ebsThroughput: 125
-      ebsIops: 3000
+      ebsSize: "30"
+      ebsThroughput: "125"
+      ebsIops: "3000"
       ebsOptimized: false
       enclaveEnabled: false
       networkCardCount: 1
@@ -55,7 +55,7 @@ forges:
         userDataToken: jmeterworker
       - id: jmetermaster
         instanceType: c7g.4xlarge
-        ebsSize: 300
+        ebsSize: "300"
         instanceCount: 1
         policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess
         dependsOn: EC2:jmeterworker

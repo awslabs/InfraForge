@@ -78,9 +78,9 @@ forges:
       keyName: aws-infra-forge
       detailedMonitoring: false
       ebsVolumeType: gp3
-      ebsSize: 30
-      ebsThroughput: 125
-      ebsIops: 3000
+      ebsSize: "30"
+      ebsThroughput: "125"
+      ebsIops: "3000"
       ebsOptimized: false
       enclaveEnabled: false
       networkCardCount: 1
@@ -105,7 +105,7 @@ forges:
       - id: dsadmin
         dependsOn: DS:bingds,EFS:efs,LUSTRE:fsx
         policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AWSDirectoryServiceFullAccess,AmazonEC2ReadOnlyAccess,AmazonSSMReadOnlyAccess
-        ebsSize: 100
+        ebsSize: "100"
         instanceType: c7g.xlarge
         userDataToken: directorymanager
   parallelcluster:
