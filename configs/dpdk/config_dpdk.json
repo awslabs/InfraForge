@@ -2,11 +2,10 @@
     "global": {
         "stackName": "aws-infra-forge",
         "dualStack": true,
-        "description": "Cross-Platform Apache Kudu Build Environment: Automates the compilation of Apache Kudu from source code on both x86_64 and ARM64 architectures, enabling native binary generation for heterogeneous deployment scenarios. The solution provisions high-performance compute instances (c6a.16xlarge for x86_64 and c7g.16xlarge for ARM64) with optimized build environments, pre-installed dependencies, and sufficient storage for source code, build artifacts, and compilation intermediates. All build processes run with non-root privileges for enhanced security. The environment supports parallel compilation across multiple CPU cores for accelerated build times, with automatic artifact organization and optional S3 upload capabilities. Ideal for organizations requiring custom Kudu builds with specific optimizations, patches, or features across multiple processor architectures, facilitating true cross-platform deployment and testing of this high-performance columnar storage system."
+        "description": "High-Performance DPDK and Pktgen Deployment: Automated provisioning of DPDK-optimized instances with multi-ENI configuration, cluster placement groups, and network performance tuning. Supports batch deployments for distributed packet generation and network testing scenarios. Includes automatic source/destination check management, DPDK driver binding, and pktgen installation with configurable versions."
     },
     "enabledForges": [
-        "kudubuilderaarch64",
-        "kudubuilderx86"
+        "al2023"
     ],
     "forges": {
         "vpc": {
@@ -55,19 +54,18 @@
             },
             "instances": [
                 {
-                    "id": "kudubuilderx86",
-                    "instanceType": "c6a.16xlarge",
-                    "osArch": "x86_64",
-                    "ebsSize": "300",
-                    "instanceCount": 1,
-                    "userDataToken": "kudubuilder-nonroot"
-                },
-                {
-                    "id": "kudubuilderaarch64",
-                    "instanceType": "c7g.16xlarge",
-                    "ebsSize": "300",
-                    "instanceCount": 1,
-                    "userDataToken": "kudubuilder-nonroot"
+                    "id": "dpdk",
+                    "instanceType": "c7g.4xlarge",
+                    "instanceCount": 2,
+                    "storeInstanceInfo": true,
+                    "ebsSize": "500",
+                    "azIndex": 1,
+                    "ebsThroughput": "500",
+                    "placementGroup": "cpg",
+                    "placementGroupStrategy": "CLUSTER",
+                    "eniCount": 2,
+                    "ebsIops": "6000",
+                    "userDataToken": "dpdk:dpdk_version=24.11.3;pktgen_version=25.07.1"
                 }
             ]
         }

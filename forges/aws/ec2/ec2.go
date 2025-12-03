@@ -141,12 +141,14 @@ func (e *Ec2Forge) Create(ctx *interfaces.ForgeContext) interface{} {
 		pg = nil
 	}
 	
-	if ec2Instance.InstanceCount > 1 && types.GetBoolValue(ec2Instance.StoreInstanceInfo, false) {
-		// 创建 SSM Parameter 来存储实例数量
-		awsssm.NewStringParameter(ctx.Stack, jsii.String(fmt.Sprintf("%s-count", origId)), &awsssm.StringParameterProps{
-			ParameterName: jsii.String(fmt.Sprintf("/infraforge/ec2/%s/instanceCount", origId)),
-			StringValue:   jsii.String(fmt.Sprintf("%d", ec2Instance.InstanceCount)),
-		})
+	if ec2Instance.InstanceCount > 1 {
+		// 如果启用了storeInstanceInfo，创建 SSM Parameter 来存储实例数量
+		if types.GetBoolValue(ec2Instance.StoreInstanceInfo, false) {
+			awsssm.NewStringParameter(ctx.Stack, jsii.String(fmt.Sprintf("%s-count", origId)), &awsssm.StringParameterProps{
+				ParameterName: jsii.String(fmt.Sprintf("/infraforge/ec2/%s/instanceCount", origId)),
+				StringValue:   jsii.String(fmt.Sprintf("%d", ec2Instance.InstanceCount)),
+			})
+		}
 
 		instances = make([]awsec2.Instance, ec2Instance.InstanceCount)
 		for i := 0; i < ec2Instance.InstanceCount; i++ {
@@ -157,14 +159,16 @@ func (e *Ec2Forge) Create(ctx *interfaces.ForgeContext) interface{} {
 			}
 			instances[i] = instance 
 
-			// 可选：为每个实例单独创建一个参数
-			awsssm.NewStringParameter(ctx.Stack, jsii.String(fmt.Sprintf("%s-hostInfo-%d", origId, i)), &awsssm.StringParameterProps{
-				ParameterName: jsii.String(fmt.Sprintf("/infraforge/ec2/%s/instance-%d", origId, i + 1)),
-				StringValue: awscdk.Fn_Join(jsii.String(","), &[]*string{
-					awscdk.Token_AsString(instances[i].InstancePrivateDnsName(), &awscdk.EncodingOptions{}),
-					awscdk.Token_AsString(instances[i].InstancePrivateIp(), &awscdk.EncodingOptions{}),
-				}),
-			})
+			// 如果启用了storeInstanceInfo，为每个实例单独创建一个参数
+			if types.GetBoolValue(ec2Instance.StoreInstanceInfo, false) {
+				awsssm.NewStringParameter(ctx.Stack, jsii.String(fmt.Sprintf("%s-hostInfo-%d", origId, i)), &awsssm.StringParameterProps{
+					ParameterName: jsii.String(fmt.Sprintf("/infraforge/ec2/%s/instance-%d", origId, i + 1)),
+					StringValue: awscdk.Fn_Join(jsii.String(","), &[]*string{
+						awscdk.Token_AsString(instances[i].InstancePrivateDnsName(), &awscdk.EncodingOptions{}),
+						awscdk.Token_AsString(instances[i].InstancePrivateIp(), &awscdk.EncodingOptions{}),
+					}),
+				})
+			}
 		}
 	} else {
 		instances = make([]awsec2.Instance, 1)

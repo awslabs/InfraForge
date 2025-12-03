@@ -183,8 +183,8 @@ install_dependencies() {
     log_info "Installing system dependencies..."
     
     # Update package lists
-    log_debug "Updating package lists"
-    sudo $PKG_UPDATE
+    #log_debug "Updating package lists"
+    #sudo $PKG_UPDATE
     
     # Install required packages
     log_debug "Installing required packages"
