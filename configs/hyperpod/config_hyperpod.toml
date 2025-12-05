@@ -92,7 +92,10 @@ karpenterCpuInstanceGenerations = "5,6,7"
 karpenterCpuInstanceTypes = ""
 karpenterCpuCapacityTypes = "spot,on-demand"
 karpenterCpuArchitectures = "amd64,arm64"
+karpenterCpuDiskType = "gp3"
 karpenterCpuDiskSize = 100
+karpenterCpuDiskIops = 3000
+karpenterCpuDiskThroughput = 125
 karpenterCpuLabels = "workload-type=general"
 commentGpu = "=== GPU 训练节点池 ==="
 karpenterGpuInstanceFamilies = ""
@@ -101,7 +104,10 @@ karpenterGpuInstanceGenerations = ""
 karpenterGpuInstanceTypes = "g5.xlarge,g5.2xlarge,g4dn.xlarge,g5g.xlarge"
 karpenterGpuCapacityTypes = "spot,on-demand"
 karpenterGpuArchitectures = "amd64,arm64"
+karpenterGpuDiskType = "gp3"
 karpenterGpuDiskSize = 200
+karpenterGpuDiskIops = 8000
+karpenterGpuDiskThroughput = 500
 karpenterGpuTaints = "nvidia.com/gpu=true:NoSchedule"
 karpenterGpuLabels = "accelerator=nvidia,workload-type=training"
 commentNeuron = "=== Neuron 推理节点池 ==="
@@ -111,7 +117,10 @@ karpenterNeuronInstanceGenerations = ""
 karpenterNeuronInstanceTypes = "inf1.xlarge,inf2.xlarge"
 karpenterNeuronCapacityTypes = "spot,on-demand"
 karpenterNeuronArchitectures = "amd64"
+karpenterNeuronDiskType = "gp3"
 karpenterNeuronDiskSize = 150
+karpenterNeuronDiskIops = 5000
+karpenterNeuronDiskThroughput = 500
 karpenterNeuronTaints = "aws.amazon.com/neuron=true:NoSchedule"
 karpenterNeuronLabels = "accelerator=neuron,workload-type=inference"
 

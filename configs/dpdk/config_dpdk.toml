@@ -1,4 +1,4 @@
-enabledForges = ["al2023"]
+enabledForges = ["dpdk"]
 
 [global]
 stackName = "aws-infra-forge"

@@ -5,7 +5,7 @@
         "description": "High-Performance DPDK and Pktgen Deployment: Automated provisioning of DPDK-optimized instances with multi-ENI configuration, cluster placement groups, and network performance tuning. Supports batch deployments for distributed packet generation and network testing scenarios. Includes automatic source/destination check management, DPDK driver binding, and pktgen installation with configurable versions."
     },
     "enabledForges": [
-        "al2023"
+        "dpdk"
     ],
     "forges": {
         "vpc": {

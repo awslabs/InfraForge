@@ -31,6 +31,9 @@ type KarpenterNodePoolProps struct {
 	CpuCapacityTypes       string
 	CpuArchitectures       string
 	CpuDiskSize            int
+	CpuDiskType            string
+	CpuDiskIops            int
+	CpuDiskThroughput      int
 	CpuLabels              string
 	CpuTaints              string
 	
@@ -42,6 +45,9 @@ type KarpenterNodePoolProps struct {
 	GpuCapacityTypes       string
 	GpuArchitectures       string
 	GpuDiskSize            int
+	GpuDiskType            string
+	GpuDiskIops            int
+	GpuDiskThroughput      int
 	GpuLabels              string
 	GpuTaints              string
 	
@@ -53,6 +59,9 @@ type KarpenterNodePoolProps struct {
 	NeuronCapacityTypes       string
 	NeuronArchitectures       string
 	NeuronDiskSize            int
+	NeuronDiskType            string
+	NeuronDiskIops            int
+	NeuronDiskThroughput      int
 	NeuronLabels              string
 	NeuronTaints              string
 }
@@ -66,6 +75,9 @@ type NodePoolConfig struct {
 	CapacityTypes       string
 	Architectures       string
 	DiskSize            int
+	DiskType            string
+	DiskIops            int
+	DiskThroughput      int
 	Labels              string
 	Taints              string
 }
@@ -135,6 +147,9 @@ func getNodePoolConfig(props *KarpenterNodePoolProps, nodeType string) NodePoolC
 			CapacityTypes:       props.CpuCapacityTypes,
 			Architectures:       props.CpuArchitectures,
 			DiskSize:            props.CpuDiskSize,
+			DiskType:            props.CpuDiskType,
+			DiskIops:            props.CpuDiskIops,
+			DiskThroughput:      props.CpuDiskThroughput,
 			Labels:              props.CpuLabels,
 			Taints:              props.CpuTaints,
 		}
@@ -147,6 +162,9 @@ func getNodePoolConfig(props *KarpenterNodePoolProps, nodeType string) NodePoolC
 			CapacityTypes:       props.GpuCapacityTypes,
 			Architectures:       props.GpuArchitectures,
 			DiskSize:            props.GpuDiskSize,
+			DiskType:            props.GpuDiskType,
+			DiskIops:            props.GpuDiskIops,
+			DiskThroughput:      props.GpuDiskThroughput,
 			Labels:              props.GpuLabels,
 			Taints:              props.GpuTaints,
 		}
@@ -159,6 +177,9 @@ func getNodePoolConfig(props *KarpenterNodePoolProps, nodeType string) NodePoolC
 			CapacityTypes:       props.NeuronCapacityTypes,
 			Architectures:       props.NeuronArchitectures,
 			DiskSize:            props.NeuronDiskSize,
+			DiskType:            props.NeuronDiskType,
+			DiskIops:            props.NeuronDiskIops,
+			DiskThroughput:      props.NeuronDiskThroughput,
 			Labels:              props.NeuronLabels,
 			Taints:              props.NeuronTaints,
 		}
@@ -182,7 +203,7 @@ func createTypedNodePool(scope constructs.Construct, id string, props *Karpenter
 	amiSelectorTerms := buildAmiSelectorTerms(nodeType, kubeVersion, props.KarpenterOsType)
 	
 	// 构建磁盘配置
-	blockDeviceMappings := buildBlockDeviceMappings(config.DiskSize)
+	blockDeviceMappings := buildBlockDeviceMappings(config)
 	
 	// 设置资源限制 - 移除硬编码限制，允许无限制扩展
 	// cpuLimit := 1000
@@ -501,18 +522,44 @@ func buildAmiSelectorTerms(nodeType string, kubeVersion string, osType string) s
 }
 
 // 构建块设备映射
-func buildBlockDeviceMappings(diskSize int) string {
-	if diskSize <= 0 {
+func buildBlockDeviceMappings(config NodePoolConfig) string {
+	if config.DiskSize <= 0 {
 		return ""
+	}
+	
+	// 默认值
+	volumeType := "gp3"
+	if config.DiskType != "" {
+		volumeType = config.DiskType
+	}
+	
+	// 构建基本的 EBS 配置
+	ebsConfig := fmt.Sprintf(`
+        volumeSize: %dGi
+        volumeType: %s
+        deleteOnTermination: true`, config.DiskSize, volumeType)
+	
+	// 添加 IOPS 配置（仅对支持的卷类型）
+	iops := config.DiskIops
+	if iops == 0 && (volumeType == "gp3" || volumeType == "io1" || volumeType == "io2") {
+		// 默认 IOPS 设置为 3000
+		iops = 3000
+	}
+	if iops > 0 && (volumeType == "gp3" || volumeType == "io1" || volumeType == "io2") {
+		ebsConfig += fmt.Sprintf(`
+        iops: %d`, iops)
+	}
+	
+	// 添加吞吐量配置（仅对 gp3 卷类型）
+	if config.DiskThroughput > 0 && volumeType == "gp3" {
+		ebsConfig += fmt.Sprintf(`
+        throughput: %d`, config.DiskThroughput)
 	}
 	
 	return fmt.Sprintf(`
   blockDeviceMappings:
     - deviceName: /dev/xvda
-      ebs:
-        volumeSize: %dGi
-        volumeType: gp3
-        deleteOnTermination: true`, diskSize)
+      ebs:%s`, ebsConfig)
 }
 
 // 获取 AMI 家族
