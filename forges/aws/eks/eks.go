@@ -91,6 +91,7 @@ type EksInstanceConfig struct {
 	KarpenterCpuDiskType            string `json:"karpenterCpuDiskType,omitempty"`            // "gp3,gp2,io1,io2"
 	KarpenterCpuDiskIops            int    `json:"karpenterCpuDiskIops,omitempty"`            // IOPS for gp3/io1/io2
 	KarpenterCpuDiskThroughput      int    `json:"karpenterCpuDiskThroughput,omitempty"`      // Throughput for gp3 (MiB/s)
+	KarpenterCpuUseInstanceStore    bool   `json:"karpenterCpuUseInstanceStore,omitempty"`    // Use instance store for ephemeral storage
 	KarpenterCpuLabels              string `json:"karpenterCpuLabels,omitempty"`              // "key1=value1,key2=value2"
 	KarpenterCpuTaints              string `json:"karpenterCpuTaints,omitempty"`              // "key1=value1:NoSchedule"
 	
@@ -105,6 +106,7 @@ type EksInstanceConfig struct {
 	KarpenterGpuDiskType            string `json:"karpenterGpuDiskType,omitempty"`            // "gp3,gp2,io1,io2"
 	KarpenterGpuDiskIops            int    `json:"karpenterGpuDiskIops,omitempty"`            // IOPS for gp3/io1/io2
 	KarpenterGpuDiskThroughput      int    `json:"karpenterGpuDiskThroughput,omitempty"`      // Throughput for gp3 (MiB/s)
+	KarpenterGpuUseInstanceStore    bool   `json:"karpenterGpuUseInstanceStore,omitempty"`    // Use instance store for ephemeral storage
 	KarpenterGpuLabels              string `json:"karpenterGpuLabels,omitempty"`
 	KarpenterGpuTaints              string `json:"karpenterGpuTaints,omitempty"`
 	
@@ -119,6 +121,7 @@ type EksInstanceConfig struct {
 	KarpenterNeuronDiskType            string `json:"karpenterNeuronDiskType,omitempty"`            // "gp3,gp2,io1,io2"
 	KarpenterNeuronDiskIops            int    `json:"karpenterNeuronDiskIops,omitempty"`            // IOPS for gp3/io1/io2
 	KarpenterNeuronDiskThroughput      int    `json:"karpenterNeuronDiskThroughput,omitempty"`      // Throughput for gp3 (MiB/s)
+	KarpenterNeuronUseInstanceStore    bool   `json:"karpenterNeuronUseInstanceStore,omitempty"`    // Use instance store for ephemeral storage
 	KarpenterNeuronLabels              string `json:"karpenterNeuronLabels,omitempty"`
 	KarpenterNeuronTaints              string `json:"karpenterNeuronTaints,omitempty"`
 }
@@ -402,6 +405,7 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		CpuDiskType:            eksInstance.KarpenterCpuDiskType,
 		CpuDiskIops:            eksInstance.KarpenterCpuDiskIops,
 		CpuDiskThroughput:      eksInstance.KarpenterCpuDiskThroughput,
+		CpuUseInstanceStore:    eksInstance.KarpenterCpuUseInstanceStore,
 		CpuLabels:              eksInstance.KarpenterCpuLabels,
 		CpuTaints:              eksInstance.KarpenterCpuTaints,
 		
@@ -416,6 +420,7 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		GpuDiskType:            eksInstance.KarpenterGpuDiskType,
 		GpuDiskIops:            eksInstance.KarpenterGpuDiskIops,
 		GpuDiskThroughput:      eksInstance.KarpenterGpuDiskThroughput,
+		GpuUseInstanceStore:    eksInstance.KarpenterGpuUseInstanceStore,
 		GpuLabels:              eksInstance.KarpenterGpuLabels,
 		GpuTaints:              eksInstance.KarpenterGpuTaints,
 		
@@ -430,6 +435,7 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		NeuronDiskType:            eksInstance.KarpenterNeuronDiskType,
 		NeuronDiskIops:            eksInstance.KarpenterNeuronDiskIops,
 		NeuronDiskThroughput:      eksInstance.KarpenterNeuronDiskThroughput,
+		NeuronUseInstanceStore:    eksInstance.KarpenterNeuronUseInstanceStore,
 		NeuronLabels:              eksInstance.KarpenterNeuronLabels,
 		NeuronTaints:              eksInstance.KarpenterNeuronTaints,
 	})
@@ -837,6 +843,9 @@ func (e *EksForge) MergeConfigs(defaults config.InstanceConfig, instance config.
 	if eksInstance.KarpenterCpuDiskThroughput != 0 {
 		merged.KarpenterCpuDiskThroughput = eksInstance.KarpenterCpuDiskThroughput
 	}
+	if eksInstance.KarpenterCpuUseInstanceStore {
+		merged.KarpenterCpuUseInstanceStore = eksInstance.KarpenterCpuUseInstanceStore
+	}
 	if eksInstance.KarpenterCpuLabels != "" {
 		merged.KarpenterCpuLabels = eksInstance.KarpenterCpuLabels
 	}
@@ -875,6 +884,9 @@ func (e *EksForge) MergeConfigs(defaults config.InstanceConfig, instance config.
 	if eksInstance.KarpenterGpuDiskThroughput != 0 {
 		merged.KarpenterGpuDiskThroughput = eksInstance.KarpenterGpuDiskThroughput
 	}
+	if eksInstance.KarpenterGpuUseInstanceStore {
+		merged.KarpenterGpuUseInstanceStore = eksInstance.KarpenterGpuUseInstanceStore
+	}
 	if eksInstance.KarpenterGpuLabels != "" {
 		merged.KarpenterGpuLabels = eksInstance.KarpenterGpuLabels
 	}
@@ -912,6 +924,9 @@ func (e *EksForge) MergeConfigs(defaults config.InstanceConfig, instance config.
 	}
 	if eksInstance.KarpenterNeuronDiskThroughput != 0 {
 		merged.KarpenterNeuronDiskThroughput = eksInstance.KarpenterNeuronDiskThroughput
+	}
+	if eksInstance.KarpenterNeuronUseInstanceStore {
+		merged.KarpenterNeuronUseInstanceStore = eksInstance.KarpenterNeuronUseInstanceStore
 	}
 	if eksInstance.KarpenterNeuronLabels != "" {
 		merged.KarpenterNeuronLabels = eksInstance.KarpenterNeuronLabels

@@ -34,6 +34,7 @@ type KarpenterNodePoolProps struct {
 	CpuDiskType            string
 	CpuDiskIops            int
 	CpuDiskThroughput      int
+	CpuUseInstanceStore    bool
 	CpuLabels              string
 	CpuTaints              string
 	
@@ -48,6 +49,7 @@ type KarpenterNodePoolProps struct {
 	GpuDiskType            string
 	GpuDiskIops            int
 	GpuDiskThroughput      int
+	GpuUseInstanceStore    bool
 	GpuLabels              string
 	GpuTaints              string
 	
@@ -62,6 +64,7 @@ type KarpenterNodePoolProps struct {
 	NeuronDiskType            string
 	NeuronDiskIops            int
 	NeuronDiskThroughput      int
+	NeuronUseInstanceStore    bool
 	NeuronLabels              string
 	NeuronTaints              string
 }
@@ -78,6 +81,7 @@ type NodePoolConfig struct {
 	DiskType            string
 	DiskIops            int
 	DiskThroughput      int
+	UseInstanceStore    bool
 	Labels              string
 	Taints              string
 }
@@ -150,6 +154,7 @@ func getNodePoolConfig(props *KarpenterNodePoolProps, nodeType string) NodePoolC
 			DiskType:            props.CpuDiskType,
 			DiskIops:            props.CpuDiskIops,
 			DiskThroughput:      props.CpuDiskThroughput,
+			UseInstanceStore:    props.CpuUseInstanceStore,
 			Labels:              props.CpuLabels,
 			Taints:              props.CpuTaints,
 		}
@@ -165,6 +170,7 @@ func getNodePoolConfig(props *KarpenterNodePoolProps, nodeType string) NodePoolC
 			DiskType:            props.GpuDiskType,
 			DiskIops:            props.GpuDiskIops,
 			DiskThroughput:      props.GpuDiskThroughput,
+			UseInstanceStore:    props.GpuUseInstanceStore,
 			Labels:              props.GpuLabels,
 			Taints:              props.GpuTaints,
 		}
@@ -180,6 +186,7 @@ func getNodePoolConfig(props *KarpenterNodePoolProps, nodeType string) NodePoolC
 			DiskType:            props.NeuronDiskType,
 			DiskIops:            props.NeuronDiskIops,
 			DiskThroughput:      props.NeuronDiskThroughput,
+			UseInstanceStore:    props.NeuronUseInstanceStore,
 			Labels:              props.NeuronLabels,
 			Taints:              props.NeuronTaints,
 		}
@@ -204,6 +211,9 @@ func createTypedNodePool(scope constructs.Construct, id string, props *Karpenter
 	
 	// 构建磁盘配置
 	blockDeviceMappings := buildBlockDeviceMappings(config)
+	
+	// 构建 Instance Store 配置
+	instanceStorePolicy := buildInstanceStorePolicy(config)
 	
 	// 设置资源限制 - 移除硬编码限制，允许无限制扩展
 	// cpuLimit := 1000
@@ -247,7 +257,7 @@ metadata:
 spec:
   instanceProfile: %s
   amiFamily: %s
-  associatePublicIPAddress: false%s
+  associatePublicIPAddress: false%s%s
   amiSelectorTerms:%s%s
   subnetSelectorTerms:
   - tags:
@@ -269,6 +279,7 @@ spec:
 		roleName,
 		getAmiFamily(props.KarpenterOsType),
 		launchTemplateConfig,
+		instanceStorePolicy,
 		amiSelectorTerms,
 		blockDeviceMappings,
 		props.ClusterName,
@@ -560,6 +571,15 @@ func buildBlockDeviceMappings(config NodePoolConfig) string {
   blockDeviceMappings:
     - deviceName: /dev/xvda
       ebs:%s`, ebsConfig)
+}
+
+// 构建 Instance Store 策略配置
+func buildInstanceStorePolicy(config NodePoolConfig) string {
+	if config.UseInstanceStore {
+		return `
+  instanceStorePolicy: RAID0`
+	}
+	return ""
 }
 
 // 获取 AMI 家族
