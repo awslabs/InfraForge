@@ -14,9 +14,9 @@ import (
 
 // deployEfaDevicePlugin 部署EFA Kubernetes Device Plugin
 func deployEfaDevicePlugin(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.HelmChart {
-	// 如果未指定版本，使用默认版本0.5.17
+	// 如果未指定版本，使用默认版本0.5.19
 	if version == "" {
-		version = "0.5.17"
+		version = "0.5.19"
 	}
 
 	// 为Helm Chart添加v前缀（因为Helm Chart的tag需要v前缀）
@@ -52,7 +52,7 @@ func deployEfaDevicePlugin(stack awscdk.Stack, cluster awseks.Cluster, version s
 func deployNvidiaDevicePlugin(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.KubernetesManifest {
 	// 使用默认版本，如果未指定
 	if version == "" {
-		version = "0.17.3" // 默认版本，不带 v 前缀
+		version = "0.18.1" // 默认版本，不带 v 前缀
 	}
 	
 	// NVIDIA Device Plugin 的 YAML 清单
@@ -126,7 +126,7 @@ spec:
 func deployNeuronDevicePlugin(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.KubernetesManifest {
 	// 如果未指定版本，使用最新版本
 	if version == "" {
-		version = "2.27.7.0"
+		version = "2.28.27.0"
 	}
 
 	// AWS Neuron Device Plugin 的 YAML 清单（基于官方配置）

@@ -285,7 +285,7 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		},
 	})
 
-	cluster.AddNodegroupCapacity(jsii.String(fmt.Sprintf("%s-node-group", eksInstance.GetID())), &awseks.NodegroupOptions{
+	cluster.AddNodegroupCapacity(jsii.String(fmt.Sprintf("%s-node-group-v%s", eksInstance.GetID(), strings.ReplaceAll(eksInstance.EksVersion, ".", ""))), &awseks.NodegroupOptions{
 		InstanceTypes: &instanceTypes,
 		MinSize: jsii.Number(eksInstance.MinSize),
 		MaxSize: jsii.Number(eksInstance.MaxSize),
@@ -366,7 +366,7 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		vpcCniManifest = upgradeVpcCniAndConfigureMultiNic(ctx.Stack, "VpcCniUpgrade", &VpcCniUpgradeProps{
 			Cluster:        cluster,
 			ClusterName:    *cluster.ClusterName(),
-			VpcCniVersion:  "v1.20.1",
+			VpcCniVersion:  "v1.20.4",
 			EnableMultiNic: true,
 		}, eksAdminSA, eksAdminCRB)
 	}

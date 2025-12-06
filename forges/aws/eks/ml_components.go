@@ -15,7 +15,7 @@ import (
 func deployMlflow(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.HelmChart {
 	// 如果未指定版本，使用默认版本
 	if version == "" {
-		version = "0.7.19"
+		version = "1.8.0" // 更新到当前可用版本
 	}
 
 	return cluster.AddHelmChart(jsii.String("mlflow"), &awseks.HelmChartOptions{

@@ -51,7 +51,7 @@ func deployMetricsServer(stack awscdk.Stack, cluster awseks.Cluster, version str
 func deployCertManager(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.HelmChart {
 	// 如果未指定版本，使用默认版本（不带v前缀）
 	if version == "" {
-		version = "1.18.2"
+		version = "1.19.1"
 	}
 
 	// 部署 Cert Manager Helm Chart（配置文件中不带v，但Helm Chart需要v前缀）
@@ -101,7 +101,7 @@ func deployCertManager(stack awscdk.Stack, cluster awseks.Cluster, version strin
 func deployAwsLoadBalancerController(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.HelmChart {
 	// 如果未指定版本，使用默认版本
 	if version == "" {
-		version = "1.13.4"
+		version = "1.16.0"
 	}
 
 	// 创建 AWS Load Balancer Controller 的 IAM 策略

@@ -22,6 +22,7 @@ import (
     kubectlv31 "github.com/cdklabs/awscdk-kubectl-go/kubectlv31/v2"
     kubectlv32 "github.com/cdklabs/awscdk-kubectl-go/kubectlv32/v2"
     kubectlv33 "github.com/cdklabs/awscdk-kubectl-go/kubectlv33/v2"
+    kubectlv34 "github.com/cdklabs/awscdk-kubectl-go/kubectlv34/v2"
 )
 
 // GetKubectlLayer 根据 EKS 版本返回合适的 KubectlLayer
@@ -52,11 +53,13 @@ func GetKubectlLayer(scope constructs.Construct, id string, eksVersion string) a
         return kubectlv31.NewKubectlV31Layer(scope, jsii.String(id))
     case "1.32":
         return kubectlv32.NewKubectlV32Layer(scope, jsii.String(id))
-    case "1.33", "latest":
+    case "1.33":
         return kubectlv33.NewKubectlV33Layer(scope, jsii.String(id))
+    case "1.34", "latest":
+        return kubectlv34.NewKubectlV34Layer(scope, jsii.String(id))
     default:
         // 默认使用最新版本
-        return kubectlv33.NewKubectlV33Layer(scope, jsii.String(id))
+        return kubectlv34.NewKubectlV34Layer(scope, jsii.String(id))
     }
 }
 

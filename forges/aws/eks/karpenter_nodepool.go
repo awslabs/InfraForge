@@ -103,10 +103,10 @@ const (
 func createKarpenterNodePool(scope constructs.Construct, id string, props *KarpenterNodePoolProps) []awseks.KubernetesManifest {
 	var kubeManifests []awseks.KubernetesManifest
 	
-	// 使用提供的 Kubernetes 版本，如果未提供则默认为 "1.33"
+	// 使用提供的 Kubernetes 版本，如果未提供则默认为 "1.34"
 	kubeVersion := props.KubernetesVersion
 	if kubeVersion == "" {
-		kubeVersion = "1.33"
+		kubeVersion = "1.34"
 	}
 	
 	// 解析 NodePoolTypes 参数，决定启用哪些节点池

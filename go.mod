@@ -6,7 +6,7 @@ go 1.23.2
 // replace github.com/awslabs/InfraForge => .
 
 require (
-	github.com/aws/aws-cdk-go/awscdk/v2 v2.222.0
+	github.com/aws/aws-cdk-go/awscdk/v2 v2.223.0
 	github.com/aws/aws-sdk-go-v2 v1.38.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.12
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.211.0
@@ -14,8 +14,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.87.3
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.35.5
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.59.1
-	github.com/aws/constructs-go/constructs/v10 v10.4.2
-	github.com/aws/jsii-runtime-go v1.118.0
+	github.com/aws/constructs-go/constructs/v10 v10.4.3
+	github.com/aws/jsii-runtime-go v1.119.0
 	github.com/cdklabs/awscdk-kubectl-go/kubectlv21/v2 v2.0.0
 	github.com/cdklabs/awscdk-kubectl-go/kubectlv22/v2 v2.0.9
 	github.com/cdklabs/awscdk-kubectl-go/kubectlv23/v2 v2.0.8
@@ -29,6 +29,7 @@ require (
 	github.com/cdklabs/awscdk-kubectl-go/kubectlv31/v2 v2.0.3
 	github.com/cdklabs/awscdk-kubectl-go/kubectlv32/v2 v2.1.0
 	github.com/cdklabs/awscdk-kubectl-go/kubectlv33/v2 v2.0.0
+	github.com/cdklabs/awscdk-kubectl-go/kubectlv34/v2 v2.0.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -50,7 +51,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.30.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.17 // indirect
 	github.com/aws/smithy-go v1.23.0 // indirect
-	github.com/cdklabs/awscdk-asset-awscli-go/awscliv1/v2 v2.2.242 // indirect
+	github.com/cdklabs/awscdk-asset-awscli-go/awscliv1/v2 v2.2.256 // indirect
 	github.com/cdklabs/awscdk-asset-node-proxy-agent-go/nodeproxyagentv6/v2 v2.1.0 // indirect
 	github.com/cdklabs/cloud-assembly-schema-go/awscdkcloudassemblyschema/v48 v48.6.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect

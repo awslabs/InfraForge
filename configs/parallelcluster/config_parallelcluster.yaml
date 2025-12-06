@@ -118,7 +118,7 @@ forges:
       computeNodeType: t3.micro
       diskSize: 50
       headNodeType: t3.medium
-      enableDcv: false
+      enableDcv: true
       minSize: 0
       maxSize: 10
       enableEfa: false
@@ -134,11 +134,11 @@ forges:
       gpuEnableEfa: false
       gpuPlacementGroupEnabled: false
       gpuPgAzIndex: 1
-      osType: alinux2
+      osType: alinux2023
       allowedPorts: 22,8443@0.0.0.0/0
       allowedPortsIpv6: 22,8443@::/0
       UserDataScriptPath: https://aws-hpc-builder.s3.amazonaws.com/project/user_data
-      version: 3.13.2
+      version: 3.14.0
     instances:
       - id: parallelcluster
         clusterName: InfraForgePCluster

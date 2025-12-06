@@ -47,6 +47,7 @@ func deployHyperPodComponents(stack awscdk.Stack, cluster awseks.Cluster, eksIns
 						Actions: jsii.Strings(
 							"sagemaker:DescribeClusterInference",
 							"sagemaker:UpdateClusterInference",
+							"eks:DescribeCluster",
 							"eks:ListAssociatedAccessPolicies",
 							"eks:AssociateAccessPolicy",
 							"eks:DisassociateAccessPolicy",

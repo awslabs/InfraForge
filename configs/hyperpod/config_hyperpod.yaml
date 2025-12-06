@@ -52,17 +52,17 @@ forges:
       adminUsers: ""
       controlPlaneAzIndices: 1,2
       commentNvidiaPluginVersion: === https://catalog.ngc.nvidia.com/orgs/nvidia/containers/k8s-device-plugin/tags ===
-      nvidiaPluginVersion: 0.17.3
+      nvidiaPluginVersion: 0.18.1
       commentNeuronDevicePluginVersion: === https://gallery.ecr.aws/neuron/neuron-device-plugin ===
-      neuronDevicePluginVersion: 2.27.7.0
+      neuronDevicePluginVersion: 2.28.27.0
       commentEfaPluginVersion: === https://artifacthub.io/packages/helm/aws/aws-efa-k8s-device-plugin ===
-      efaPluginVersion: 0.5.17
+      efaPluginVersion: 0.5.19
       commentPodIdentityAgentVersion: === https://gallery.ecr.aws/eks/eks-pod-identity-agent ===
       podIdentityAgentVersion: latest
       commentAwsLoadBalancerControllerVersion: === https://artifacthub.io/packages/helm/aws/aws-load-balancer-controller ===
-      awsLoadBalancerControllerVersion: 1.13.4
+      awsLoadBalancerControllerVersion: 1.16.0
       commentCertManagerVersion: === https://artifacthub.io/packages/helm/cert-manager/cert-manager ===
-      certManagerVersion: 1.18.2
+      certManagerVersion: 1.19.1
       commentMetricsServerVersion: === https://github.com/kubernetes-sigs/metrics-server/releases ===
       metricsServerVersion: 3.13.0
       commentMountpointS3CsiDriverVersion: === https://github.com/awslabs/mountpoint-s3-csi-driver/releases ===
@@ -78,9 +78,10 @@ forges:
       commentTrainingOperatorVersion: === https://github.com/kubeflow/trainer/tags ===
       trainingOperatorVersion: 1.9.3
       commentMlflowVersion: === https://artifacthub.io/packages/helm/community-charts/mlflow ===
-      mlflowVersion: 1.6.2
+      mlflowVersion: 1.8.0
       enableHyperPodComponents: false
       useModernTrainingOperator: false
+      commentKarpenterVersion: === https://karpenter.sh ===
       karpenterVersion: 1.7.1
       karpenterNodePools: cpu,gpu,neuron
       karpenterOsType: linux
@@ -127,7 +128,7 @@ forges:
       karpenterNeuronLabels: accelerator=neuron,workload-type=inference
     instances:
       - id: eks
-        eksVersion: "1.32"
+        eksVersion: "1.33"
         dependsOn: LUSTRE:fsx
         deployCsiDriver: true
         createStorageClass: true
@@ -148,7 +149,7 @@ forges:
       instanceCount: 0
       azIndex: 1
       threadsPerCore: 1
-      eksVersion: "1.32"
+      eksVersion: "1.33"
       ebsVolumeSizeGb: 500
       createLustre: true
       lustreStorageCapacity: 1200
