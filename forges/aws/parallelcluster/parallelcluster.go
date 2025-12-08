@@ -84,8 +84,8 @@ type ParallelClusterInstanceConfig struct {
 	ComputeNodeBootstrapTimeout int `json:"computeNodeBootstrapTimeout,omitempty"`
 
 	// Additional configuration
-	AdditionalPolicies string   `json:"additionalPolicies"`
-	DependsOn          string   `json:"dependsOn"`
+	Policies  string `json:"policies,omitempty"`
+	DependsOn string `json:"dependsOn"`
 }
 
 // ParallelClusterForge implements the Forge interface for AWS ParallelCluster
@@ -191,10 +191,14 @@ func (f *ParallelClusterForge) Create(ctx *interfaces.ForgeContext) interface{} 
 		)
 	}
 
+	// Create ParallelCluster provider resource with Lambda execution role
+	// AdditionalIamPolicies are attached to the Lambda role (not HeadNode) to allow:
+	// - AmazonSSMManagedInstanceCore: Required for ParallelCluster operations
+	// - IAMFullAccess: Required to attach/detach IAM policies to HeadNode role
 	providerResource := awscdk.NewCfnStack(providerStack, jsii.String(fmt.Sprintf("%s-provider-resource", pcInstance.ID)), &awscdk.CfnStackProps{
 		TemplateUrl: jsii.String(templateUrl),
 		Parameters: &map[string]*string{
-			"AdditionalIamPolicies": jsii.String(fmt.Sprintf("arn:%s:iam::aws:policy/AmazonSSMManagedInstanceCore", partition.DefaultPartition)),
+			"AdditionalIamPolicies": jsii.String(fmt.Sprintf("arn:%s:iam::aws:policy/AmazonSSMManagedInstanceCore,arn:%s:iam::aws:policy/IAMFullAccess", partition.DefaultPartition, partition.DefaultPartition)),
 		},
 	})
 
@@ -229,11 +233,7 @@ func (f *ParallelClusterForge) Create(ctx *interfaces.ForgeContext) interface{} 
 				"KeyName": fmt.Sprintf("%s-linux-%s", pcInstance.KeyName, partition.DefaultRegion),
 			},
 			"Iam": map[string]interface{}{
-				"AdditionalIamPolicies": []map[string]interface{}{
-					{
-						"Policy": fmt.Sprintf("arn:%s:iam::aws:policy/AmazonSSMManagedInstanceCore", partition.DefaultPartition),
-					},
-				},
+				"AdditionalIamPolicies": buildAdditionalIamPolicies(pcInstance.Policies, types.GetBoolValue(pcInstance.EnableDcv, false), partition.DefaultPartition),
 			},
 			"LocalStorage": map[string]interface{}{
 				"RootVolume": map[string]interface{}{
@@ -534,8 +534,8 @@ func (f *ParallelClusterForge) MergeConfigs(defaults config.InstanceConfig, inst
 		merged.PgAzIndex = parallelClusterInstance.PgAzIndex
 	}
 
-	if parallelClusterInstance.AdditionalPolicies != "" {
-		merged.AdditionalPolicies = parallelClusterInstance.AdditionalPolicies
+	if parallelClusterInstance.Policies != "" {
+		merged.Policies = parallelClusterInstance.Policies
 	}
 
 	if parallelClusterInstance.DependsOn != "" {
@@ -763,6 +763,56 @@ func getOnNodeConfiguredScriptPath(pcInstance *ParallelClusterInstanceConfig) st
 	return fmt.Sprintf("https://aws-hpc-builder.s3.amazonaws.com/project/user_data/user_data_%s.sh", pcInstance.UserDataToken)
 }
 
+// buildAdditionalIamPolicies 构建 IAM 策略列表
+func buildAdditionalIamPolicies(policies string, enableDcv bool, partition string) []map[string]interface{} {
+	policyList := []map[string]interface{}{}
+	addedPolicies := make(map[string]bool)
+
+	// 如果启用 DCV，自动添加 SSM 策略（DCV 需要 SSM 支持）
+	if enableDcv {
+		ssmPolicy := fmt.Sprintf("arn:%s:iam::aws:policy/AmazonSSMManagedInstanceCore", partition)
+		policyList = append(policyList, map[string]interface{}{
+			"Policy": ssmPolicy,
+		})
+		addedPolicies[ssmPolicy] = true
+		addedPolicies["AmazonSSMManagedInstanceCore"] = true
+	}
+
+	// 添加用户指定的策略
+	if policies != "" {
+		policyNames := strings.Split(policies, ",")
+		for _, policyName := range policyNames {
+			policyName = strings.TrimSpace(policyName)
+			if policyName == "" {
+				continue
+			}
+			
+			// Build full ARN for the policy
+			var policyArn string
+			if strings.HasPrefix(policyName, "arn:") {
+				policyArn = policyName
+			} else if strings.Contains(policyName, "/") {
+				// service-role/PolicyName format
+				policyArn = fmt.Sprintf("arn:%s:iam::aws:policy/%s", partition, policyName)
+			} else {
+				// Simple policy name
+				policyArn = fmt.Sprintf("arn:%s:iam::aws:policy/%s", partition, policyName)
+			}
+			
+			// 避免重复添加
+			if !addedPolicies[policyArn] && !addedPolicies[policyName] {
+				policyList = append(policyList, map[string]interface{}{
+					"Policy": policyArn,
+				})
+				addedPolicies[policyArn] = true
+				addedPolicies[policyName] = true
+			}
+		}
+	}
+
+	return policyList
+}
+
 // getSlurmQueues 函数用于根据配置生成Slurm队列配置
 func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnetIds []string, computeNodeSg awsec2.SecurityGroup, ctx *interfaces.ForgeContext) []map[string]interface{} {
 	// 处理逗号分隔的实例类型列表
@@ -777,6 +827,59 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		}
 		
 		return instances
+	}
+
+	// 创建计算资源配置（支持多实例类型）
+	createComputeResources := func(instanceType string, minSize, maxSize int, disableSMT *bool, queueType string) []map[string]interface{} {
+		instanceTypes := strings.Split(instanceType, ",")
+		computeResources := []map[string]interface{}{}
+
+		// 1. 如果有多个实例类型，创建混合资源
+		if len(instanceTypes) > 1 {
+			mixedComputeResource := map[string]interface{}{
+				"Name":                              "auto",
+				"Instances":                         getInstancesConfig(instanceType),
+				"MinCount":                          minSize,
+				"MaxCount":                          maxSize,
+				"DisableSimultaneousMultithreading": disableSMT,
+			}
+			computeResources = append(computeResources, mixedComputeResource)
+		}
+
+		// 2. 为每个实例类型创建单独资源
+		for _, instType := range instanceTypes {
+			instType = strings.TrimSpace(instType)
+			if instType == "" {
+				continue
+			}
+
+			instanceFamily := strings.Split(instType, ".")[0]
+
+			singleComputeResource := map[string]interface{}{
+				"Name":                              instanceFamily,
+				"Instances":                         getInstancesConfig(instType),
+				"MinCount":                          0,
+				"MaxCount":                          maxSize,
+				"DisableSimultaneousMultithreading": disableSMT,
+			}
+			computeResources = append(computeResources, singleComputeResource)
+		}
+
+		// 3. 如果只有一个实例类型，也创建主资源
+		if len(instanceTypes) == 1 {
+			instType := strings.TrimSpace(instanceTypes[0])
+
+			mainComputeResource := map[string]interface{}{
+				"Name":                              "auto",
+				"Instances":                         getInstancesConfig(instType),
+				"MinCount":                          minSize,
+				"MaxCount":                          maxSize,
+				"DisableSimultaneousMultithreading": disableSMT,
+			}
+			computeResources = append(computeResources, mainComputeResource)
+		}
+
+		return computeResources
 	}
 
 	// 为 CPU 队列选择子网
@@ -817,25 +920,27 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 	}
 	
 	// 创建 CPU 计算资源配置
-	cpuComputeResource := map[string]interface{}{
-		"Name": "cpu-cr0",
-		"Instances": getInstancesConfig(pcInstance.ComputeNodeType),
-		"MinCount": pcInstance.MinSize,
-		"MaxCount": pcInstance.MaxSize,
-		"DisableSimultaneousMultithreading": pcInstance.DisableSimultaneousMultithreading,
-	}
+	cpuComputeResources := createComputeResources(
+		pcInstance.ComputeNodeType,
+		pcInstance.MinSize,
+		pcInstance.MaxSize,
+		pcInstance.DisableSimultaneousMultithreading,
+		"cpu",
+	)
 	
 	// 为 CPU 队列添加 EFA 配置（如果启用）
 	if types.GetBoolValue(pcInstance.EnableEfa, false) {
-		cpuComputeResource["Efa"] = map[string]interface{}{
-			"Enabled": true,
+		for i := range cpuComputeResources {
+			cpuComputeResources[i]["Efa"] = map[string]interface{}{
+				"Enabled": true,
+			}
 		}
 	}
 	
 	// 创建 CPU 按需队列
 	cpuQueue := map[string]interface{}{
 		"Name": "cpu",
-		"ComputeResources": []map[string]interface{}{cpuComputeResource},
+		"ComputeResources": cpuComputeResources,
 		"Networking": cpuNetworkingConfig,
 	}
 	
@@ -847,25 +952,27 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 	queues := []map[string]interface{}{cpuQueue}
 
 	// 创建 CPU Spot 计算资源配置
-	cpuSpotComputeResource := map[string]interface{}{
-		"Name": "cpu-spot-cr0",
-		"Instances": getInstancesConfig(pcInstance.ComputeNodeType),
-		"MinCount": 0,
-		"MaxCount": pcInstance.MaxSize,
-		"DisableSimultaneousMultithreading": pcInstance.DisableSimultaneousMultithreading,
-	}
+	cpuSpotComputeResources := createComputeResources(
+		pcInstance.ComputeNodeType,
+		0,
+		pcInstance.MaxSize,
+		pcInstance.DisableSimultaneousMultithreading,
+		"cpu-spot",
+	)
 	
 	// 为 CPU Spot 队列添加 EFA 配置（如果启用）
 	if types.GetBoolValue(pcInstance.EnableEfa, false) {
-		cpuSpotComputeResource["Efa"] = map[string]interface{}{
-			"Enabled": true,
+		for i := range cpuSpotComputeResources {
+			cpuSpotComputeResources[i]["Efa"] = map[string]interface{}{
+				"Enabled": true,
+			}
 		}
 	}
 	
 	// 创建 CPU Spot 队列
 	cpuSpotQueue := map[string]interface{}{
 		"Name": "cpu-spot",
-		"ComputeResources": []map[string]interface{}{cpuSpotComputeResource},
+		"ComputeResources": cpuSpotComputeResources,
 		"Networking": cpuNetworkingConfig, // 使用与 CPU 队列相同的网络配置
 		"CapacityType": "SPOT",
 	}
@@ -931,25 +1038,27 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		}
 
 		// 创建 GPU 计算资源配置
-		gpuComputeResource := map[string]interface{}{
-			"Name": "gpu-cr0",
-			"Instances": getInstancesConfig(gpuInstanceType),
-			"MinCount": gpuMinSize,
-			"MaxCount": gpuMaxSize,
-			"DisableSimultaneousMultithreading": pcInstance.DisableSimultaneousMultithreading,
-		}
+		gpuComputeResources := createComputeResources(
+			gpuInstanceType,
+			gpuMinSize,
+			gpuMaxSize,
+			pcInstance.DisableSimultaneousMultithreading,
+			"gpu",
+		)
 		
 		// 为 GPU 队列添加 EFA 配置（如果启用）
 		if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
-			gpuComputeResource["Efa"] = map[string]interface{}{
-				"Enabled": true,
+			for i := range gpuComputeResources {
+				gpuComputeResources[i]["Efa"] = map[string]interface{}{
+					"Enabled": true,
+				}
 			}
 		}
 
 		// 添加 GPU 按需队列
 		gpuQueue := map[string]interface{}{
 			"Name": "gpu",
-			"ComputeResources": []map[string]interface{}{gpuComputeResource},
+			"ComputeResources": gpuComputeResources,
 			"Networking": gpuNetworkingConfig,
 		}
 		
@@ -961,25 +1070,27 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		queues = append(queues, gpuQueue)
 		
 		// 创建 GPU Spot 计算资源配置
-		gpuSpotComputeResource := map[string]interface{}{
-			"Name": "gpu-spot-cr0",
-			"Instances": getInstancesConfig(gpuInstanceType),
-			"MinCount": 0,
-			"MaxCount": gpuMaxSize,
-			"DisableSimultaneousMultithreading": pcInstance.DisableSimultaneousMultithreading,
-		}
+		gpuSpotComputeResources := createComputeResources(
+			gpuInstanceType,
+			0,
+			gpuMaxSize,
+			pcInstance.DisableSimultaneousMultithreading,
+			"gpu-spot",
+		)
 		
 		// 为 GPU Spot 队列添加 EFA 配置（如果启用）
 		if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
-			gpuSpotComputeResource["Efa"] = map[string]interface{}{
-				"Enabled": true,
+			for i := range gpuSpotComputeResources {
+				gpuSpotComputeResources[i]["Efa"] = map[string]interface{}{
+					"Enabled": true,
+				}
 			}
 		}
 		
 		// 添加 GPU Spot 队列
 		gpuSpotQueue := map[string]interface{}{
 			"Name": "gpu-spot",
-			"ComputeResources": []map[string]interface{}{gpuSpotComputeResource},
+			"ComputeResources": gpuSpotComputeResources,
 			"Networking": gpuNetworkingConfig, // 使用与 GPU 队列相同的网络配置
 			"CapacityType": "SPOT",
 		}

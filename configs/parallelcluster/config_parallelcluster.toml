@@ -136,6 +136,7 @@ gpuEnableEfa = false
 gpuPlacementGroupEnabled = false
 gpuPgAzIndex = 1
 osType = "alinux2023"
+policies = "AmazonS3FullAccess,AmazonSSMManagedInstanceCore"
 allowedPorts = "22,8443@0.0.0.0/0"
 allowedPortsIpv6 = "22,8443@::/0"
 UserDataScriptPath = "https://aws-hpc-builder.s3.amazonaws.com/project/user_data"
@@ -150,6 +151,19 @@ headNodeType = "c6i.xlarge"
 userDataToken = "none"
 enableGpuQueue = true
 gpuInstanceType = "g4dn.4xlarge,g5.4xlarge"
+headNodeBootstrapTimeout = 7200
+computeNodeBootstrapTimeout = 1200
+keyName = "parallelcluster"
+
+[[forges.parallelcluster.instances]]
+id = "gparallelcluster"
+clusterName = "GInfraForgePCluster"
+computeNodeType = "c8g.4xlarge,m8g.4xlarge,r8g.4xlarge"
+dependsOn = "RDS:rds,DS:bingds,EFS:efs,LUSTRE:fsx"
+headNodeType = "c7g.4xlarge"
+userDataToken = "none"
+enableGpuQueue = true
+gpuInstanceType = "c7g.4xlarge,m7g.4xlarge,r7g.4xlarge"
 headNodeBootstrapTimeout = 7200
 computeNodeBootstrapTimeout = 1200
 keyName = "parallelcluster"
