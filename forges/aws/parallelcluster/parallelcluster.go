@@ -944,6 +944,16 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		"Networking": cpuNetworkingConfig,
 	}
 	
+	// 添加计算节点的 CustomActions 配置
+	if pcInstance.UserDataToken != "" {
+		cpuQueue["CustomActions"] = map[string]interface{}{
+			"OnNodeConfigured": map[string]interface{}{
+				"Script": getOnNodeConfiguredScriptPath(pcInstance),
+				"Args": []string{pcInstance.UserDataToken},
+			},
+		}
+	}
+	
 	// 设置分配策略
 	if pcInstance.AllocationStrategy != "" {
 		cpuQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
@@ -975,6 +985,16 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		"ComputeResources": cpuSpotComputeResources,
 		"Networking": cpuNetworkingConfig, // 使用与 CPU 队列相同的网络配置
 		"CapacityType": "SPOT",
+	}
+	
+	// 添加计算节点的 CustomActions 配置
+	if pcInstance.UserDataToken != "" {
+		cpuSpotQueue["CustomActions"] = map[string]interface{}{
+			"OnNodeConfigured": map[string]interface{}{
+				"Script": getOnNodeConfiguredScriptPath(pcInstance),
+				"Args": []string{pcInstance.UserDataToken},
+			},
+		}
 	}
 	
 	// 为 Spot 队列设置专门的分配策略
@@ -1062,6 +1082,16 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			"Networking": gpuNetworkingConfig,
 		}
 		
+		// 添加计算节点的 CustomActions 配置
+		if pcInstance.UserDataToken != "" {
+			gpuQueue["CustomActions"] = map[string]interface{}{
+				"OnNodeConfigured": map[string]interface{}{
+					"Script": getOnNodeConfiguredScriptPath(pcInstance),
+					"Args": []string{pcInstance.UserDataToken},
+				},
+			}
+		}
+		
 		// 设置分配策略
 		if pcInstance.AllocationStrategy != "" {
 			gpuQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
@@ -1093,6 +1123,16 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			"ComputeResources": gpuSpotComputeResources,
 			"Networking": gpuNetworkingConfig, // 使用与 GPU 队列相同的网络配置
 			"CapacityType": "SPOT",
+		}
+		
+		// 添加计算节点的 CustomActions 配置
+		if pcInstance.UserDataToken != "" {
+			gpuSpotQueue["CustomActions"] = map[string]interface{}{
+				"OnNodeConfigured": map[string]interface{}{
+					"Script": getOnNodeConfiguredScriptPath(pcInstance),
+					"Args": []string{pcInstance.UserDataToken},
+				},
+			}
 		}
 		
 		// 为 GPU Spot 队列设置专门的分配策略
