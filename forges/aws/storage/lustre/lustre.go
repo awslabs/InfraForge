@@ -21,10 +21,11 @@ type LustreInstanceConfig struct {
 	AzIndex                  int      `json:"azIndex,omitempty"`
 	DataCompressionType      string   `json:"dataCompressionType,omitempty"`
 	DeploymentType           string   `json:"deploymentType,omitempty"`
+	StorageType              string   `json:"storageType,omitempty"`
 	FileSystemVersion        string   `json:"fileSystemVersion,omitempty"`
 	PerUnitStorageThroughput float64  `json:"perUnitStorageThroughput,omitempty"`
 	RemovalPolicy            string   `json:"removalPolicy,omitempty"`
-	StorageCapacityGiB       int      `json:"size,omitempty"`
+	StorageCapacityGiB       int      `json:"storageCapacityGiB,omitempty"`
 }
 
 type LustreForge struct {
@@ -63,6 +64,7 @@ func (l *LustreForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	fileSystem := awsfsx.NewLustreFileSystem(ctx.Stack, jsii.String(fileSystemName), &awsfsx.LustreFileSystemProps{
 		LustreConfiguration:   lustreConfiguration,
 		StorageCapacityGiB:    jsii.Number(lustreInstance.StorageCapacityGiB),
+		StorageType:           parseStorageType(lustreInstance.StorageType),
 		Vpc:                   ctx.VPC,
 		VpcSubnet:             selectedSubnet,
 		SecurityGroup:         ctx.SecurityGroups.Default,
@@ -167,8 +169,24 @@ func (l *LustreForge) MergeConfigs(defaults config.InstanceConfig, instance conf
 	if lustreInstance.FileSystemVersion != "" {
 		merged.FileSystemVersion = lustreInstance.FileSystemVersion
 	}
+	if lustreInstance.StorageType != "" {
+		merged.StorageType = lustreInstance.StorageType
+	} else {
+		merged.StorageType = "SSD"  // 默认使用SSD
+	}
 	if lustreInstance.PerUnitStorageThroughput > 0 { 
 		merged.PerUnitStorageThroughput = lustreInstance.PerUnitStorageThroughput
+	} else {
+		// 根据部署类型设置默认的有效吞吐量值
+		switch merged.DeploymentType {
+		case "PERSISTENT_1", "persistent1":
+			merged.PerUnitStorageThroughput = 50  // 50 MB/s/TiB for PERSISTENT_1 SSD
+		case "PERSISTENT_2", "persistent2":
+			merged.PerUnitStorageThroughput = 125 // 125 MB/s/TiB for PERSISTENT_2 SSD
+		default:
+			// SCRATCH类型不需要PerUnitStorageThroughput
+			merged.PerUnitStorageThroughput = 0
+		}
 	}
 
 	return merged
@@ -213,6 +231,23 @@ func parseDataCompressionType(input string) awsfsx.LustreDataCompressionType {
 		return awsfsx.LustreDataCompressionType_LZ4
 	default:
 		return awsfsx.LustreDataCompressionType_NONE
+	}
+}
+
+func parseStorageType(input string) awsfsx.StorageType {
+	lowered := strings.ToLower(input)
+	cleaned := strings.ReplaceAll(lowered, "_", "")
+	cleaned = strings.ReplaceAll(cleaned, "-", "")
+
+	switch cleaned {
+	case "ssd":
+		return awsfsx.StorageType_SSD
+	case "hdd":
+		return awsfsx.StorageType_HDD
+	case "intelligenttiering":
+		return awsfsx.StorageType_INTELLIGENT_TIERING
+	default:
+		return awsfsx.StorageType_SSD
 	}
 }
 

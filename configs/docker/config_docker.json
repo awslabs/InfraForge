@@ -1,0 +1,80 @@
+{
+    "global": {
+        "stackName": "aws-infra-forge",
+        "dualStack": true,
+        "description": "Flexible AWS EC2 Deployment Framework: Supports provisioning instances through standard OS name/version combinations or custom AMIs via the osImage parameter. Supported osName values include amazon, ubuntu, debian, redhat, suse, rokcy, windows. Enables batch deployments with configurable instance counts and advanced placement strategies through PlacementGroup and PlacementGroupStrategy parameters. For batch deployments, the StoreInstanceInfo option preserves EC2 instance metadata in Parameter Store, making it accessible within UserData scripts. Supports advanced networking features including EFA (Elastic Fabric Adapter) and ENA-SRD (Elastic Network Adapter with Scalable Reliable Datagram) for high-performance computing and low-latency applications."
+    },
+    "enabledForges": [
+        "al2023"
+    ],
+    "forges": {
+        "vpc": {
+            "defaults": {
+                "id": "vpc",
+                "type": "VPC",
+                "cidrBlock": "10.69.0.0/16",
+                "natGatewayPerAZ": false
+            }
+        },
+        "ec2": {
+            "defaults": {
+                "type": "EC2",
+                "security": "private",
+                "subnet": "private",
+                "azIndex": 2,
+                "debug": false,
+                "instanceType": "c7g.xlarge",
+                "instanceCount": 1,
+                "keyName": "aws-infra-forge",
+                "detailedMonitoring": false,
+                "ebsVolumeType": "gp3",
+                "ebsSize": "30",
+                "ebsThroughput": "125",
+                "ebsIops": "3000",
+                "ebsOptimized": false,
+                "enclaveEnabled": false,
+                "networkCardCount": 1,
+                "eniCount": 1,
+                "purchaseOption": "od",
+                "spotMaxPrice": "",
+                "capacityBlockId": "",
+                "enableEfa": false,
+                "enaSrdEnabled": false,
+                "osArch": "aarch64",
+                "osName": "amazon",
+                "osType": "linux",
+                "osVersion": "2023",
+                "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore",
+                "s3Location": "s3://aws-infra-forge",
+                "allowedPorts": "22@0.0.0.0/0;80,443,8443@10.69.0.0/16",
+                "allowedPortsIpv6": "22,80,443,8443@::/0",
+                "requireImdsv2": true,
+                "userDataScriptPath": "",
+                "userDataToken": "sysinfo"
+            },
+            "instances": [
+                {
+                    "id": "dockeramd64",
+                    "instanceType": "c6i.4xlarge",
+                    "ebsSize": "200",
+                    "ebsThroughput": "300",
+                    "osArch": "x86_64",
+                    "ebsIops": "3000",
+                    "osImage": "ami-03852a41f1e05c8e4",
+                    "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonElasticContainerRegistryPublicFullAccess",
+                    "userDataToken": "docker:ecr_alias=w7t9b2j0"
+                },
+                {
+                    "id": "dockerarm64",
+                    "instanceType": "c7g.4xlarge",
+                    "ebsSize": "200",
+                    "ebsThroughput": "300",
+                    "ebsIops": "3000",
+                    "osImage": "ami-06a1d4c85527f276b",
+                    "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonElasticContainerRegistryPublicFullAccess",
+                    "userDataToken": "docker:ecr_alias=w7t9b2j0"
+                }
+            ]
+        }
+    }
+}
