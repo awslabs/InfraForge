@@ -41,6 +41,7 @@
                 "deploymentType": "scratch2",
                 "dataCompressionType": "lz4",
                 "fileSystemVersion": "2.15",
+                "storageType": "ssd",
                 "perUnitStorageThroughput": 250,
                 "removalPolicy": "destory",
                 "storageCapacityGiB": 1200

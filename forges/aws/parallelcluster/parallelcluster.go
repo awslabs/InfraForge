@@ -36,6 +36,22 @@ type ParallelClusterInstanceConfig struct {
 	AzIndex            int    `json:"azIndex"`
 	OsType             string `json:"osType"`
 	DiskSize           int    `json:"diskSize,omitempty"`
+	DiskIops           int    `json:"diskIops,omitempty"`
+	DiskThroughput     int    `json:"diskThroughput,omitempty"`
+	DiskType           string `json:"diskType,omitempty"`
+	
+	// CPU节点存储配置
+	CpuNodeDiskSize       int    `json:"cpuNodeDiskSize,omitempty"`
+	CpuNodeDiskIops       int    `json:"cpuNodeDiskIops,omitempty"`
+	CpuNodeDiskThroughput int    `json:"cpuNodeDiskThroughput,omitempty"`
+	CpuNodeDiskType       string `json:"cpuNodeDiskType,omitempty"`
+	
+	// GPU节点存储配置
+	GpuNodeDiskSize       int    `json:"gpuNodeDiskSize,omitempty"`
+	GpuNodeDiskIops       int    `json:"gpuNodeDiskIops,omitempty"`
+	GpuNodeDiskThroughput int    `json:"gpuNodeDiskThroughput,omitempty"`
+	GpuNodeDiskType       string `json:"gpuNodeDiskType,omitempty"`
+	
 	MinSize            int    `json:"minSize,omitempty"`
 	MaxSize            int    `json:"maxSize,omitempty"`
 	UserDataToken      string `json:"userDataToken"`
@@ -236,9 +252,12 @@ func (f *ParallelClusterForge) Create(ctx *interfaces.ForgeContext) interface{} 
 				"AdditionalIamPolicies": buildAdditionalIamPolicies(pcInstance.Policies, types.GetBoolValue(pcInstance.EnableDcv, false), partition.DefaultPartition),
 			},
 			"LocalStorage": map[string]interface{}{
-				"RootVolume": map[string]interface{}{
-					"Size": pcInstance.DiskSize,
-				},
+				"RootVolume": buildVolumeConfig(
+					pcInstance.DiskSize,
+					pcInstance.DiskIops,
+					pcInstance.DiskThroughput,
+					pcInstance.DiskType,
+				),
 			},
 			"CustomActions": map[string]interface{}{
 				"OnNodeConfigured": map[string]interface{}{
@@ -491,6 +510,52 @@ func (f *ParallelClusterForge) MergeConfigs(defaults config.InstanceConfig, inst
 
 	if parallelClusterInstance.DiskSize != 0 {
 		merged.DiskSize = parallelClusterInstance.DiskSize
+	}
+
+	if parallelClusterInstance.DiskIops != 0 {
+		merged.DiskIops = parallelClusterInstance.DiskIops
+	}
+
+	if parallelClusterInstance.DiskThroughput != 0 {
+		merged.DiskThroughput = parallelClusterInstance.DiskThroughput
+	}
+
+	if parallelClusterInstance.DiskType != "" {
+		merged.DiskType = parallelClusterInstance.DiskType
+	}
+
+	// CPU节点存储配置
+	if parallelClusterInstance.CpuNodeDiskSize != 0 {
+		merged.CpuNodeDiskSize = parallelClusterInstance.CpuNodeDiskSize
+	}
+
+	if parallelClusterInstance.CpuNodeDiskIops != 0 {
+		merged.CpuNodeDiskIops = parallelClusterInstance.CpuNodeDiskIops
+	}
+
+	if parallelClusterInstance.CpuNodeDiskThroughput != 0 {
+		merged.CpuNodeDiskThroughput = parallelClusterInstance.CpuNodeDiskThroughput
+	}
+
+	if parallelClusterInstance.CpuNodeDiskType != "" {
+		merged.CpuNodeDiskType = parallelClusterInstance.CpuNodeDiskType
+	}
+
+	// GPU节点存储配置
+	if parallelClusterInstance.GpuNodeDiskSize != 0 {
+		merged.GpuNodeDiskSize = parallelClusterInstance.GpuNodeDiskSize
+	}
+
+	if parallelClusterInstance.GpuNodeDiskIops != 0 {
+		merged.GpuNodeDiskIops = parallelClusterInstance.GpuNodeDiskIops
+	}
+
+	if parallelClusterInstance.GpuNodeDiskThroughput != 0 {
+		merged.GpuNodeDiskThroughput = parallelClusterInstance.GpuNodeDiskThroughput
+	}
+
+	if parallelClusterInstance.GpuNodeDiskType != "" {
+		merged.GpuNodeDiskType = parallelClusterInstance.GpuNodeDiskType
 	}
 
 	if parallelClusterInstance.MinSize != 0 {
@@ -813,6 +878,45 @@ func buildAdditionalIamPolicies(policies string, enableDcv bool, partition strin
 	return policyList
 }
 
+// buildVolumeConfig 构建存储卷配置
+func buildVolumeConfig(size, iops, throughput int, volumeType string) map[string]interface{} {
+	config := map[string]interface{}{
+		"Size": size,
+	}
+	
+	// 只有明确指定了 VolumeType 才设置，否则使用 ParallelCluster 默认值
+	if volumeType != "" {
+		config["VolumeType"] = volumeType
+	}
+	
+	// 只有明确指定了 IOPS 才设置（大于 0）
+	if iops > 0 {
+		config["Iops"] = iops
+	}
+	
+	// 只有明确指定了 Throughput 才设置（大于 0）
+	if throughput > 0 {
+		config["Throughput"] = throughput
+	}
+	
+	return config
+}
+
+// 辅助函数
+func getValueOrDefault(value, defaultValue int) int {
+	if value > 0 {
+		return value
+	}
+	return defaultValue
+}
+
+func getStringOrDefault(value, defaultValue string) string {
+	if value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 // getSlurmQueues 函数用于根据配置生成Slurm队列配置
 func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnetIds []string, computeNodeSg awsec2.SecurityGroup, ctx *interfaces.ForgeContext) []map[string]interface{} {
 	// 处理逗号分隔的实例类型列表
@@ -882,6 +986,42 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		return computeResources
 	}
 
+	// 创建 ComputeSettings 配置
+	createComputeSettings := func(queueType string) map[string]interface{} {
+		// 根据队列类型确定存储配置
+		var diskSize, diskIops, diskThroughput int
+		var diskType string
+		
+		switch queueType {
+		case "cpu", "cpu-spot":
+			diskSize = getValueOrDefault(pcInstance.CpuNodeDiskSize, pcInstance.DiskSize)
+			diskIops = getValueOrDefault(pcInstance.CpuNodeDiskIops, pcInstance.DiskIops)
+			diskThroughput = getValueOrDefault(pcInstance.CpuNodeDiskThroughput, pcInstance.DiskThroughput)
+			diskType = getStringOrDefault(pcInstance.CpuNodeDiskType, pcInstance.DiskType)
+		case "gpu", "gpu-spot":
+			diskSize = getValueOrDefault(pcInstance.GpuNodeDiskSize, pcInstance.DiskSize)
+			diskIops = getValueOrDefault(pcInstance.GpuNodeDiskIops, pcInstance.DiskIops)
+			diskThroughput = getValueOrDefault(pcInstance.GpuNodeDiskThroughput, pcInstance.DiskThroughput)
+			diskType = getStringOrDefault(pcInstance.GpuNodeDiskType, pcInstance.DiskType)
+		default:
+			diskSize = pcInstance.DiskSize
+			diskIops = pcInstance.DiskIops
+			diskThroughput = pcInstance.DiskThroughput
+			diskType = pcInstance.DiskType
+		}
+
+		// 只有当配置了存储参数时才返回 ComputeSettings
+		if diskSize > 0 || diskIops > 0 || diskThroughput > 0 || diskType != "" {
+			return map[string]interface{}{
+				"LocalStorage": map[string]interface{}{
+					"RootVolume": buildVolumeConfig(diskSize, diskIops, diskThroughput, diskType),
+				},
+			}
+		}
+		
+		return nil
+	}
+
 	// 为 CPU 队列选择子网
 	var cpuSubnetIds []string
 	if types.GetBoolValue(pcInstance.PlacementGroupEnabled, false) {
@@ -944,6 +1084,11 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		"Networking": cpuNetworkingConfig,
 	}
 	
+	// 添加 ComputeSettings 配置
+	if computeSettings := createComputeSettings("cpu"); computeSettings != nil {
+		cpuQueue["ComputeSettings"] = computeSettings
+	}
+	
 	// 添加计算节点的 CustomActions 配置
 	if pcInstance.UserDataToken != "" {
 		cpuQueue["CustomActions"] = map[string]interface{}{
@@ -985,6 +1130,11 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		"ComputeResources": cpuSpotComputeResources,
 		"Networking": cpuNetworkingConfig, // 使用与 CPU 队列相同的网络配置
 		"CapacityType": "SPOT",
+	}
+	
+	// 添加 ComputeSettings 配置
+	if computeSettings := createComputeSettings("cpu-spot"); computeSettings != nil {
+		cpuSpotQueue["ComputeSettings"] = computeSettings
 	}
 	
 	// 添加计算节点的 CustomActions 配置
@@ -1082,6 +1232,11 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			"Networking": gpuNetworkingConfig,
 		}
 		
+		// 添加 ComputeSettings 配置
+		if computeSettings := createComputeSettings("gpu"); computeSettings != nil {
+			gpuQueue["ComputeSettings"] = computeSettings
+		}
+		
 		// 添加计算节点的 CustomActions 配置
 		if pcInstance.UserDataToken != "" {
 			gpuQueue["CustomActions"] = map[string]interface{}{
@@ -1123,6 +1278,11 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			"ComputeResources": gpuSpotComputeResources,
 			"Networking": gpuNetworkingConfig, // 使用与 GPU 队列相同的网络配置
 			"CapacityType": "SPOT",
+		}
+		
+		// 添加 ComputeSettings 配置
+		if computeSettings := createComputeSettings("gpu-spot"); computeSettings != nil {
+			gpuSpotQueue["ComputeSettings"] = computeSettings
 		}
 		
 		// 添加计算节点的 CustomActions 配置

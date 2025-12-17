@@ -25,6 +25,7 @@ id = "efs"
 dataCompressionType = "lz4"
 deploymentType = "scratch2"
 fileSystemVersion = "2.15"
+storageType = "ssd"
 perUnitStorageThroughput = 250
 removalPolicy = "destory"
 azIndex = 1

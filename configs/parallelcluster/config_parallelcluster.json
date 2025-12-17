@@ -42,6 +42,7 @@
                 "dataCompressionType": "lz4",
                 "deploymentType": "scratch2",
                 "fileSystemVersion": "2.15",
+                "storageType": "ssd",
                 "perUnitStorageThroughput": 250,
                 "removalPolicy": "destory",
                 "storageCapacityGiB": 1200
@@ -147,6 +148,8 @@
                 "azIndex": 1,
                 "computeNodeType": "t3.micro",
                 "diskSize": 50,
+                "cpuNodeDiskSize": 100,
+                "gpuNodeDiskSize": 200,
                 "headNodeType": "t3.medium",
                 "enableDcv": true,
                 "minSize": 0,

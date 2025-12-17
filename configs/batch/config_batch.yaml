@@ -29,6 +29,7 @@ forges:
       dataCompressionType: lz4
       deploymentType: scratch2
       fileSystemVersion: "2.15"
+      storageType: ssd
       perUnitStorageThroughput: 250
       removalPolicy: destory
       storageCapacityGiB: 1200
