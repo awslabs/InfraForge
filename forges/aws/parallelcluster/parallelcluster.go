@@ -99,6 +99,10 @@ type ParallelClusterInstanceConfig struct {
 	AllowedPortsIpv6 string `json:"allowedPortsIpv6,omitempty"`  // IPv6端口配置
 	ComputeNodeBootstrapTimeout int `json:"computeNodeBootstrapTimeout,omitempty"`
 
+	// Custom AMI configuration
+	CustomAmi          string `json:"customAmi,omitempty"`          // 自定义 AMI ID
+	ComputeCustomAmi   string `json:"computeCustomAmi,omitempty"`   // 计算节点自定义 AMI ID
+
 	// Additional configuration
 	Policies  string `json:"policies,omitempty"`
 	DependsOn string `json:"dependsOn"`
@@ -236,9 +240,7 @@ func (f *ParallelClusterForge) Create(ctx *interfaces.ForgeContext) interface{} 
 
 	// Create the cluster configuration
 	clusterConfig := map[string]interface{}{
-		"Image": map[string]interface{}{
-			"Os": pcInstance.OsType,
-		},
+		"Image": buildImageConfig(pcInstance),
 		"HeadNode": map[string]interface{}{
 			"InstanceType": pcInstance.HeadNodeType,
 			"Networking": map[string]interface{}{
@@ -657,6 +659,15 @@ func (f *ParallelClusterForge) MergeConfigs(defaults config.InstanceConfig, inst
 		merged.DcvPort = parallelClusterInstance.DcvPort
 	}
 
+	// 合并自定义 AMI 配置
+	if parallelClusterInstance.CustomAmi != "" {
+		merged.CustomAmi = parallelClusterInstance.CustomAmi
+	}
+
+	if parallelClusterInstance.ComputeCustomAmi != "" {
+		merged.ComputeCustomAmi = parallelClusterInstance.ComputeCustomAmi
+	}
+
 	return merged
 }
 
@@ -917,6 +928,29 @@ func getStringOrDefault(value, defaultValue string) string {
 	return defaultValue
 }
 
+// buildImageConfig 构建镜像配置
+func buildImageConfig(pcInstance *ParallelClusterInstanceConfig) map[string]interface{} {
+	imageConfig := map[string]interface{}{
+		"Os": pcInstance.OsType,
+	}
+	
+	// 如果指定了自定义 AMI，使用自定义 AMI
+	if pcInstance.CustomAmi != "" {
+		imageConfig["CustomAmi"] = pcInstance.CustomAmi
+	}
+	
+	return imageConfig
+}
+
+// getComputeCustomAmi 获取计算节点自定义 AMI，如果没有指定则继承头节点的
+func getComputeCustomAmi(pcInstance *ParallelClusterInstanceConfig) string {
+	if pcInstance.ComputeCustomAmi != "" {
+		return pcInstance.ComputeCustomAmi
+	}
+	// 如果没有指定计算节点自定义 AMI，继承头节点的
+	return pcInstance.CustomAmi
+}
+
 // getSlurmQueues 函数用于根据配置生成Slurm队列配置
 func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnetIds []string, computeNodeSg awsec2.SecurityGroup, ctx *interfaces.ForgeContext) []map[string]interface{} {
 	// 处理逗号分隔的实例类型列表
@@ -1104,6 +1138,13 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		cpuQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
 	}
 	
+	// 添加自定义 AMI 配置（如果指定了计算节点自定义 AMI）
+	if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+		cpuQueue["Image"] = map[string]interface{}{
+			"CustomAmi": computeAmi,
+		}
+	}
+	
 	queues := []map[string]interface{}{cpuQueue}
 
 	// 创建 CPU Spot 计算资源配置
@@ -1153,6 +1194,13 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 	} else if pcInstance.AllocationStrategy != "" {
 		// 如果没有指定Spot专用策略，则使用通用策略
 		cpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
+	}
+	
+	// 添加自定义 AMI 配置（如果指定了计算节点自定义 AMI）
+	if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+		cpuSpotQueue["Image"] = map[string]interface{}{
+			"CustomAmi": computeAmi,
+		}
 	}
 	
 	queues = append(queues, cpuSpotQueue)
@@ -1251,6 +1299,13 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		if pcInstance.AllocationStrategy != "" {
 			gpuQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
 		}
+		
+		// 添加自定义 AMI 配置（如果指定了计算节点自定义 AMI）
+		if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+			gpuQueue["Image"] = map[string]interface{}{
+				"CustomAmi": computeAmi,
+			}
+		}
 
 		queues = append(queues, gpuQueue)
 		
@@ -1301,6 +1356,13 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		} else if pcInstance.AllocationStrategy != "" {
 			// 如果没有指定Spot专用策略，则使用通用策略
 			gpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
+		}
+		
+		// 添加自定义 AMI 配置（如果指定了计算节点自定义 AMI）
+		if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+			gpuSpotQueue["Image"] = map[string]interface{}{
+				"CustomAmi": computeAmi,
+			}
 		}
 		
 		queues = append(queues, gpuSpotQueue)
