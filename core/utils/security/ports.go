@@ -36,6 +36,17 @@ func ParseAllowedPorts(allowedPorts string) []PortRule {
 		
 		for _, portStr := range strings.Split(ports, ",") {
 			portStr = strings.TrimSpace(portStr)
+			
+			// 解析协议，默认为 tcp
+			protocol := "tcp"
+			if strings.Contains(portStr, "/") {
+				parts := strings.Split(portStr, "/")
+				if len(parts) == 2 {
+					portStr = parts[0]
+					protocol = strings.ToLower(strings.TrimSpace(parts[1]))
+				}
+			}
+			
 			if strings.Contains(portStr, "-") {
 				// 端口范围
 				rangeParts := strings.Split(portStr, "-")
@@ -46,7 +57,7 @@ func ParseAllowedPorts(allowedPorts string) []PortRule {
 								FromPort: fromPort,
 								ToPort:   toPort,
 								Cidr:     cidr,
-								Protocol: "tcp",
+								Protocol: protocol,
 							})
 						}
 					}
@@ -57,7 +68,7 @@ func ParseAllowedPorts(allowedPorts string) []PortRule {
 					rules = append(rules, PortRule{
 						Port:     port,
 						Cidr:     cidr,
-						Protocol: "tcp",
+						Protocol: protocol,
 					})
 				}
 			}

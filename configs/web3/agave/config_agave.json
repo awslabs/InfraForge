@@ -59,22 +59,22 @@
                     "subnet": "public",
                     "ebsSize": "100",
                     "instanceType": "i8g.16xlarge",
-                    "allowedPorts": "22,80,443,8443,8000-8020@0.0.0.0/0",
-                    "allowedPortsIpv6": "22,80,443,8443,8000-8020@::/0",
-                    "userDataToken": "agave-nonroot:cluster=mainnet;nodetype=basic"
+                    "allowedPorts": "22,80,443,8443,8000,8000-8025/udp@0.0.0.0/0",
+                    "allowedPortsIpv6": "22,80,443,8443,8000,8000-8025/udp@::/0",
+                    "userDataToken": "agave-nonroot:cluster=mainnet;nodetype=basic;agave_version=3.1.5;anchor_version=0.32.1"
                 },
                 {
                     "id": "agaver7a",
                     "security": "public",
                     "subnet": "public",
                     "instanceType": "r7a.16xlarge",
-                    "allowedPorts": "22,80,443,8443,8000-8020@0.0.0.0/0",
-                    "allowedPortsIpv6": "22,80,443,8443,8000-8020@::/0",
+                    "allowedPorts": "22,80,443,8443,8000,8000-8025/udp@0.0.0.0/0",
+                    "allowedPortsIpv6": "22,80,443,8443,8000,8000-8025/udp@::/0",
                     "ebsVolumeType": "io2",
                     "ebsSize": "4096",
                     "ebsIops": "100000",
                     "osArch": "x86_64",
-                    "userDataToken": "agave-nonroot:cluster=mainnet;nodetype=basic"
+                    "userDataToken": "agave-nonroot:cluster=mainnet;nodetype=basic;agave_version=3.1.5;anchor_version=0.32.1"
                 }
             ]
         }

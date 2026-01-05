@@ -16,9 +16,23 @@ func ApplyPortRules(targetSG awsec2.SecurityGroup, allowedPorts, allowedPortsIpv
 		rules := utilsSecurity.ParseAllowedPorts(allowedPorts)
 		for _, rule := range rules {
 			if rule.Port > 0 {
-				AddTcpIngressRuleFromCidr(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d", rule.Port))
+				if rule.Protocol == "udp" {
+					AddUdpIngressRuleFromCidr(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d UDP", rule.Port))
+				} else if rule.Protocol == "both" {
+					AddTcpIngressRuleFromCidr(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d TCP", rule.Port))
+					AddUdpIngressRuleFromCidr(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d UDP", rule.Port))
+				} else {
+					AddTcpIngressRuleFromCidr(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d TCP", rule.Port))
+				}
 			} else if rule.FromPort > 0 && rule.ToPort > 0 {
-				AddTcpRangeIngressRuleFromCidr(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d", rule.FromPort, rule.ToPort))
+				if rule.Protocol == "udp" {
+					AddUdpRangeIngressRuleFromCidr(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d UDP", rule.FromPort, rule.ToPort))
+				} else if rule.Protocol == "both" {
+					AddTcpRangeIngressRuleFromCidr(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d TCP", rule.FromPort, rule.ToPort))
+					AddUdpRangeIngressRuleFromCidr(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d UDP", rule.FromPort, rule.ToPort))
+				} else {
+					AddTcpRangeIngressRuleFromCidr(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d TCP", rule.FromPort, rule.ToPort))
+				}
 			}
 		}
 	}
@@ -28,9 +42,23 @@ func ApplyPortRules(targetSG awsec2.SecurityGroup, allowedPorts, allowedPortsIpv
 		ipv6Rules := utilsSecurity.ParseAllowedPorts(allowedPortsIpv6)
 		for _, rule := range ipv6Rules {
 			if rule.Port > 0 {
-				AddTcpIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d IPv6", rule.Port))
+				if rule.Protocol == "udp" {
+					AddUdpIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d UDP IPv6", rule.Port))
+				} else if rule.Protocol == "both" {
+					AddTcpIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d TCP IPv6", rule.Port))
+					AddUdpIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d UDP IPv6", rule.Port))
+				} else {
+					AddTcpIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.Port, fmt.Sprintf("Allow port %d TCP IPv6", rule.Port))
+				}
 			} else if rule.FromPort > 0 && rule.ToPort > 0 {
-				AddTcpRangeIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d IPv6", rule.FromPort, rule.ToPort))
+				if rule.Protocol == "udp" {
+					AddUdpRangeIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d UDP IPv6", rule.FromPort, rule.ToPort))
+				} else if rule.Protocol == "both" {
+					AddTcpRangeIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d TCP IPv6", rule.FromPort, rule.ToPort))
+					AddUdpRangeIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d UDP IPv6", rule.FromPort, rule.ToPort))
+				} else {
+					AddTcpRangeIngressRuleFromCidrIpv6(targetSG, rule.Cidr, rule.FromPort, rule.ToPort, fmt.Sprintf("Allow ports %d-%d TCP IPv6", rule.FromPort, rule.ToPort))
+				}
 			}
 		}
 	}

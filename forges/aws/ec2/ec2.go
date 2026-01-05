@@ -696,6 +696,12 @@ func (e *Ec2Forge) MergeConfigs(defaults config.InstanceConfig, instance config.
 	if ec2Instance.BandwidthWeighting != "" {
 		merged.BandwidthWeighting = ec2Instance.BandwidthWeighting
 	}
+	if ec2Instance.AllowedPorts != "" {
+		merged.AllowedPorts = ec2Instance.AllowedPorts
+	}
+	if ec2Instance.AllowedPortsIpv6 != "" {
+		merged.AllowedPortsIpv6 = ec2Instance.AllowedPortsIpv6
+	}
 
 	return merged
 }
