@@ -66,7 +66,13 @@ forges:
       commentMetricsServerVersion: === https://github.com/kubernetes-sigs/metrics-server/releases ===
       metricsServerVersion: 3.13.0
       commentMountpointS3CsiDriverVersion: === https://github.com/awslabs/mountpoint-s3-csi-driver/releases ===
-      mountpointS3CsiDriverVersion: 2.0.0
+      mountpointS3CsiDriverVersion: latest
+      commentEbsCsiDriverVersion: === https://github.com/kubernetes-sigs/aws-ebs-csi-driver/releases ===
+      ebsCsiDriverVersion: latest
+      commentEfsCsiDriverVersion: === https://github.com/kubernetes-sigs/aws-efs-csi-driver/releases ===
+      efsCsiDriverVersion: latest
+      commentFsxCsiDriverVersion: === https://github.com/kubernetes-sigs/aws-fsx-csi-driver/releases ===
+      fsxCsiDriverVersion: latest
       s3BucketName: aws-infra-forge
       deployCsiDriver: false
       createStorageClass: false

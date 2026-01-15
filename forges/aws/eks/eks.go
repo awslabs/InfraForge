@@ -53,11 +53,11 @@ type EksInstanceConfig struct {
 
 	// 用于支持 Storage 集成
 	DependsOn                string `json:"dependsOn,omitempty"`
-	DeployCsiDriver          *bool  `json:"deployCsiDriver,omitempty"`
+	DeployCsiDriver          *bool  `json:"deployCsiDriver,omitempty"`          // 是否部署依赖型存储CSI驱动(EFS/FSx)，需配合dependsOn使用
 	CreateStorageClass       *bool  `json:"createStorageClass,omitempty"`
 	StorageClassName         string `json:"storageClassName,omitempty"`
-	CreateStaticPV           *bool  `json:"createStaticPV,omitempty"`  // 用于指定是否创建静态 PV
-	CreateDefaultPVC         *bool  `json:"createDefaultPVC,omitempty"`  // 用于指定是否创建默认 PVC
+	CreateStaticPV           *bool  `json:"createStaticPV,omitempty"`           // 用于指定是否创建静态 PV
+	CreateDefaultPVC         *bool  `json:"createDefaultPVC,omitempty"`         // 用于指定是否创建默认 PVC
 	DefaultPVCNamespace      string `json:"defaultPVCNamespace,omitempty"`  // 用于指定默认 PVC 的命名空间
 
 	// 用于支持 Metrics Server
@@ -69,8 +69,17 @@ type EksInstanceConfig struct {
 	// 用于支持 AWS Load Balancer Controller
 	AwsLoadBalancerControllerVersion string `json:"awsLoadBalancerControllerVersion,omitempty"` // AWS Load Balancer Controller 版本，不为空时安装
 
+	// 用于支持 EBS CSI Driver
+	EbsCsiDriverVersion          string `json:"ebsCsiDriverVersion,omitempty"`          // EBS CSI Driver 版本，留空使用最新版，可指定具体版本
+
+	// 用于支持 EFS CSI Driver
+	EfsCsiDriverVersion          string `json:"efsCsiDriverVersion,omitempty"`          // EFS CSI Driver 版本，留空使用最新版，可指定具体版本
+
+	// 用于支持 FSx CSI Driver
+	FsxCsiDriverVersion          string `json:"fsxCsiDriverVersion,omitempty"`          // FSx CSI Driver 版本，留空使用最新版，可指定具体版本
+
 	// 用于支持 Mountpoint S3 CSI Driver
-	MountpointS3CsiDriverVersion string `json:"mountpointS3CsiDriverVersion,omitempty"` // Mountpoint S3 CSI Driver 版本，不为空时安装
+	MountpointS3CsiDriverVersion string `json:"mountpointS3CsiDriverVersion,omitempty"` // Mountpoint S3 CSI Driver 版本，留空使用最新版，可指定具体版本
 	S3BucketName                 string `json:"s3BucketName,omitempty"`                 // S3 存储桶名称
 
 	// 用于支持 MLflow
@@ -521,6 +530,14 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		}
 	}
 
+	// 部署 EBS CSI Driver（如果指定了版本）
+	if eksInstance.EbsCsiDriverVersion != "" {
+		ebsCsiChart := deployEbsCsiDriver(ctx.Stack, cluster, eksInstance.EbsCsiDriverVersion)
+		if ebsCsiChart != nil {
+			ebsCsiChart.Node().AddDependency(awsAuthConfigMap)
+		}
+	}
+
 	// 部署 Mountpoint S3 CSI Driver（如果指定了版本）
 	if eksInstance.MountpointS3CsiDriverVersion != "" {
 		s3CsiChart := deployMountpointS3CsiDriverWithStorage(ctx.Stack, cluster, eksInstance)
@@ -580,7 +597,7 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		} else {
 			// 如果需要部署 CSI 驱动
 			if types.GetBoolValue(eksInstance.DeployCsiDriver, false) {
-				csiCharts := deployStorageCsiDriver(ctx.Stack, cluster, magicToken, eksInstance)
+				csiCharts := deployDependentStorageCsiDrivers(ctx.Stack, cluster, magicToken, eksInstance)
 				// 为所有 CSI Charts 添加 mastersRole 依赖
 				for _, chart := range csiCharts {
 					if chart != nil {

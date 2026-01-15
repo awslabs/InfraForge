@@ -18,13 +18,77 @@ import (
 	"github.com/aws/jsii-runtime-go"
 )
 
-// deployMountpointS3CsiDriver 部署 Mountpoint S3 CSI Driver
-func deployMountpointS3CsiDriver(stack awscdk.Stack, cluster awseks.Cluster, version string, bucketName string) awseks.HelmChart {
-	// 如果未指定版本，使用默认版本
-	if version == "" {
-		version = "2.0.0"
+// csiDriverConfig CSI Driver通用配置
+type csiDriverConfig struct {
+	name               string
+	chartId            string // Helm Chart ID，用于CloudFormation资源命名
+	serviceAccountName string
+	chartName          string
+	repository         string
+	managedPolicyName  string        // 如果不为空，使用managed policy
+	customPolicy       awsiam.Policy // 如果managedPolicyName为空，使用custom policy
+	version            string
+}
+
+// deployGenericCsiDriver 部署通用CSI Driver（EBS/EFS/FSx）
+func deployGenericCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, config *csiDriverConfig) awseks.HelmChart {
+	// 创建ServiceAccount
+	saId := jsii.String(config.name + "-csi-controller-sa")
+	csiServiceAccount := cluster.AddServiceAccount(saId, &awseks.ServiceAccountOptions{
+		Name:      jsii.String(config.serviceAccountName),
+		Namespace: jsii.String("kube-system"),
+	})
+
+	// 附加IAM权限
+	if config.managedPolicyName != "" {
+		// 使用AWS managed policy
+		managedPolicy := awsiam.ManagedPolicy_FromAwsManagedPolicyName(jsii.String(config.managedPolicyName))
+		csiServiceAccount.Role().AddManagedPolicy(managedPolicy)
+	} else if config.customPolicy != nil {
+		// 使用自定义policy
+		csiServiceAccount.Role().AttachInlinePolicy(config.customPolicy)
 	}
 
+	// 部署Helm Chart
+	helmOptions := &awseks.HelmChartOptions{
+		Chart:      jsii.String(config.chartName),
+		Repository: jsii.String(config.repository),
+		Namespace:  jsii.String("kube-system"),
+		Values: &map[string]interface{}{
+			"controller": map[string]interface{}{
+				"serviceAccount": map[string]interface{}{
+					"create": false,
+					"name":   config.serviceAccountName,
+				},
+			},
+		},
+	}
+	// 只有指定了版本且不是latest才设置Version
+	if config.version != "" && config.version != "latest" {
+		helmOptions.Version = jsii.String(config.version)
+	}
+	
+	csiChart := cluster.AddHelmChart(jsii.String(config.chartId), helmOptions)
+	csiChart.Node().AddDependency(csiServiceAccount)
+	
+	return csiChart
+}
+
+// deployEbsCsiDriver 部署 EBS CSI Driver
+func deployEbsCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.HelmChart {
+	return deployGenericCsiDriver(stack, cluster, &csiDriverConfig{
+		name:               "ebs",
+		chartId:            "ebs-csi-driver",
+		serviceAccountName: "ebs-csi-controller-sa",
+		chartName:          "aws-ebs-csi-driver",
+		repository:         "https://kubernetes-sigs.github.io/aws-ebs-csi-driver",
+		managedPolicyName:  "service-role/AmazonEBSCSIDriverPolicy",
+		version:            version,
+	})
+}
+
+// deployMountpointS3CsiDriver 部署 Mountpoint S3 CSI Driver
+func deployMountpointS3CsiDriver(stack awscdk.Stack, cluster awseks.Cluster, version string, bucketName string) awseks.HelmChart {
 	// 创建 IAM 角色用于 S3 CSI Driver（使用 CDK 的 ServiceAccount 方法）
 	s3CsiServiceAccount := cluster.AddServiceAccount(jsii.String("s3-csi-sa"), &awseks.ServiceAccountOptions{
 		Name:      jsii.String("s3-csi-driver-sa"),
@@ -112,6 +176,11 @@ func deployMountpointS3CsiDriver(stack awscdk.Stack, cluster awseks.Cluster, ver
 						"resources": []string{"mountpoints3podattachments"},
 						"verbs":     []string{"get", "list", "watch", "create", "delete", "update", "patch"},
 					},
+					{
+						"apiGroups": []string{"apiextensions.k8s.io"},
+						"resources": []string{"customresourcedefinitions"},
+						"verbs":     []string{"get", "list", "watch"},
+					},
 				},
 			},
 		},
@@ -145,26 +214,30 @@ func deployMountpointS3CsiDriver(stack awscdk.Stack, cluster awseks.Cluster, ver
 
 	// 部署 Mountpoint S3 CSI Driver Helm Chart
 	// 让 CDK 管理 ServiceAccount，Helm 不创建 ServiceAccount
-	s3CsiChart := cluster.AddHelmChart(jsii.String("s3-csi"), &awseks.HelmChartOptions{
+	helmOptions := &awseks.HelmChartOptions{
 		Chart:      jsii.String("aws-mountpoint-s3-csi-driver"),
 		Repository: jsii.String("https://awslabs.github.io/mountpoint-s3-csi-driver"),
 		Namespace:  jsii.String("kube-system"),
-		Version:    jsii.String(version),
 		Values: &map[string]interface{}{
 			"node": map[string]interface{}{
 				"serviceAccount": map[string]interface{}{
-					"create": false, // 不让 Helm Chart 创建 ServiceAccount
-					"name":   "s3-csi-driver-sa", // 使用 CDK 创建的 ServiceAccount
+					"create": false,
+					"name":   "s3-csi-driver-sa",
 				},
 			},
 			"controller": map[string]interface{}{
 				"serviceAccount": map[string]interface{}{
-					"create": false, // controller 也不创建 ServiceAccount
-					"name":   "s3-csi-driver-sa", // 使用同一个 ServiceAccount
+					"create": false,
+					"name":   "s3-csi-driver-sa",
 				},
 			},
 		},
-	})
+	}
+	// 只有指定了版本且不是latest才设置Version
+	if version != "" && version != "latest" {
+		helmOptions.Version = jsii.String(version)
+	}
+	s3CsiChart := cluster.AddHelmChart(jsii.String("s3-csi"), helmOptions)
 
 	// 添加依赖关系，确保资源按正确顺序创建
 	s3CsiChart.Node().AddDependency(s3CsiServiceAccount)
@@ -311,8 +384,9 @@ func deployMountpointS3CsiDriverWithStorage(stack awscdk.Stack, cluster awseks.C
 	return s3CsiChart
 }
 
-// deployLustreCsiDriver, deployEfsCsiDriver
-func deployStorageCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) []awseks.HelmChart {
+// deployDependentStorageCsiDrivers 部署依赖于预创建文件系统的CSI驱动
+// 支持: EFS, FSx Lustre (未来可扩展: FSx ONTAP, FSx OpenZFS, FSx Windows)
+func deployDependentStorageCsiDrivers(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) []awseks.HelmChart {
     // 直接从 eksInstance.DependsOn 解析存储类型
     dependsOn := strings.ToUpper(eksInstance.DependsOn)
     var charts []awseks.HelmChart
@@ -338,6 +412,11 @@ func deployStorageCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTok
 
 // 部署 FSx Lustre CSI 驱动和 StorageClass
 func deployLustreCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) awseks.HelmChart {
+	// 如果未指定版本，不部署
+	if eksInstance.FsxCsiDriverVersion == "" {
+		return nil
+	}
+
 	// 使用通用函数获取Lustre依赖
 	lustreProperties, err := dependency.ExtractDependencyProperties(magicTokenStr, "LUSTRE")
 	if err != nil {
@@ -365,7 +444,10 @@ func deployLustreCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicToke
 		return nil
 	}
 
-	// 创建 IAM 策略和服务账户
+	// 设置版本（留空或latest使用最新版）
+	version := eksInstance.FsxCsiDriverVersion
+
+	// 创建 IAM 自定义策略
 	csiPolicy := awsiam.NewPolicy(stack, jsii.String("FsxLustreCsiPolicy"), &awsiam.PolicyProps{
 		Statements: &[]awsiam.PolicyStatement{
 			awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
@@ -385,30 +467,16 @@ func deployLustreCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicToke
 		},
 	})
 
-	csiServiceAccount := cluster.AddServiceAccount(jsii.String("fsx-csi-controller-sa"), &awseks.ServiceAccountOptions{
-		Name: jsii.String("fsx-csi-controller-sa"),
-		Namespace: jsii.String("kube-system"),
+	// 使用通用函数部署CSI Driver
+	csiChart := deployGenericCsiDriver(stack, cluster, &csiDriverConfig{
+		name:               "fsx",
+		chartId:            "fsx-csi-driver",
+		serviceAccountName: "fsx-csi-controller-sa",
+		chartName:          "aws-fsx-csi-driver",
+		repository:         "https://kubernetes-sigs.github.io/aws-fsx-csi-driver",
+		customPolicy:       csiPolicy,
+		version:            version,
 	})
-
-	csiServiceAccount.Role().AttachInlinePolicy(csiPolicy)
-
-	// 部署 FSx CSI 驱动
-	csiChart := cluster.AddHelmChart(jsii.String("fsx-csi-driver"), &awseks.HelmChartOptions{
-		Chart: jsii.String("aws-fsx-csi-driver"),
-		Repository: jsii.String("https://kubernetes-sigs.github.io/aws-fsx-csi-driver"),
-		Namespace: jsii.String("kube-system"),
-		Values: &map[string]interface{}{
-			"controller": map[string]interface{}{
-				"serviceAccount": map[string]interface{}{
-					"create": false,  // 不让 Helm Chart 创建 ServiceAccount，使用我们自己创建的
-					"name": "fsx-csi-controller-sa",
-				},
-			},
-		},
-	})
-
-	// 添加依赖关系，确保 ServiceAccount 在 Helm Chart 之前创建
-	csiChart.Node().AddDependency(csiServiceAccount)
 
 	// 如果需要创建 StorageClass
 	if types.GetBoolValue(eksInstance.CreateStorageClass, false) {
@@ -528,6 +596,11 @@ func deployLustreCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicToke
 
 // 部署 EFS CSI 驱动和 StorageClass
 func deployEfsCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenStr string, eksInstance *EksInstanceConfig) awseks.HelmChart {
+	// 如果未指定版本，不部署
+	if eksInstance.EfsCsiDriverVersion == "" {
+		return nil
+	}
+
 	// 使用通用函数获取EFS依赖
 	efsProperties, err := dependency.ExtractDependencyProperties(magicTokenStr, "EFS")
 	if err != nil {
@@ -543,48 +616,19 @@ func deployEfsCsiDriver(stack awscdk.Stack, cluster awseks.Cluster, magicTokenSt
 		return nil
 	}
 
-	// 创建 IAM 策略和服务账户
-	csiPolicy := awsiam.NewPolicy(stack, jsii.String("EfsCsiPolicy"), &awsiam.PolicyProps{
-		Statements: &[]awsiam.PolicyStatement{
-			awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
-				Effect: awsiam.Effect_ALLOW,
-				Actions: jsii.Strings(
-					"elasticfilesystem:DescribeAccessPoints",
-					"elasticfilesystem:DescribeFileSystems",
-					"elasticfilesystem:DescribeMountTargets",
-					"elasticfilesystem:CreateAccessPoint",
-					"elasticfilesystem:DeleteAccessPoint",
-					"ec2:DescribeAvailabilityZones",
-				),
-				Resources: jsii.Strings("*"),
-			}),
-		},
+	// 设置版本（留空或latest使用最新版）
+	version := eksInstance.EfsCsiDriverVersion
+
+	// 使用通用函数部署CSI Driver
+	csiChart := deployGenericCsiDriver(stack, cluster, &csiDriverConfig{
+		name:               "efs",
+		chartId:            "efs-csi-driver",
+		serviceAccountName: "efs-csi-controller-sa",
+		chartName:          "aws-efs-csi-driver",
+		repository:         "https://kubernetes-sigs.github.io/aws-efs-csi-driver",
+		managedPolicyName:  "service-role/AmazonEFSCSIDriverPolicy",
+		version:            version,
 	})
-
-	csiServiceAccount := cluster.AddServiceAccount(jsii.String("efs-csi-controller-sa"), &awseks.ServiceAccountOptions{
-		Name: jsii.String("efs-csi-controller-sa"),
-		Namespace: jsii.String("kube-system"),
-	})
-
-	csiServiceAccount.Role().AttachInlinePolicy(csiPolicy)
-
-	// 部署 EFS CSI 驱动
-	csiChart := cluster.AddHelmChart(jsii.String("aws-efs-csi-driver"), &awseks.HelmChartOptions{
-		Chart: jsii.String("aws-efs-csi-driver"),
-		Repository: jsii.String("https://kubernetes-sigs.github.io/aws-efs-csi-driver"),
-		Namespace: jsii.String("kube-system"),
-		Values: &map[string]interface{}{
-			"controller": map[string]interface{}{
-				"serviceAccount": map[string]interface{}{
-					"create": false,  // 不让 Helm Chart 创建 ServiceAccount，使用我们自己创建的
-					"name": "efs-csi-controller-sa",
-				},
-			},
-		},
-	})
-
-	// 添加依赖关系，确保 ServiceAccount 在 Helm Chart 之前创建
-	csiChart.Node().AddDependency(csiServiceAccount)
 
 	// 如果需要创建 StorageClass
 	if types.GetBoolValue(eksInstance.CreateStorageClass, false) {
