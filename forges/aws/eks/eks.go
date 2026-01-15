@@ -91,6 +91,9 @@ type EksInstanceConfig struct {
 	PrometheusStorageSize        string `json:"prometheusStorageSize,omitempty"`        // Prometheus存储大小，默认50Gi
 	GrafanaStorageSize           string `json:"grafanaStorageSize,omitempty"`           // Grafana存储大小，默认10Gi
 
+	// 用于支持 Ray Operator
+	RayOperatorVersion           string `json:"rayOperatorVersion,omitempty"`           // Ray Operator版本，留空使用最新版
+
 	// 用于支持 HyperPod 专用组件
 	EnableHyperPodComponents     *bool  `json:"enableHyperPodComponents,omitempty"`     // 是否启用 HyperPod 专用组件
 	NeuronDevicePluginVersion    string `json:"neuronDevicePluginVersion,omitempty"`   // Neuron Device Plugin 版本
@@ -552,14 +555,6 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		}
 	}
 
-	// 部署 Prometheus + Grafana 监控栈（如果指定了版本）
-	if eksInstance.PrometheusStackVersion != "" {
-		prometheusChart := deployPrometheusStack(ctx.Stack, cluster, eksInstance)
-		if prometheusChart != nil {
-			prometheusChart.Node().AddDependency(awsAuthConfigMap)
-		}
-	}
-
 	// 4. 部署 Metrics Server（如果指定了版本）
 	// 依赖 Cert Manager，保持简单的线性依赖链
 	var metricsServerChart awseks.HelmChart
@@ -651,6 +646,30 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		neuronPlugin := deployNeuronDevicePlugin(ctx.Stack, cluster, eksInstance.NeuronDevicePluginVersion)
 		if neuronPlugin != nil {
 			neuronPlugin.Node().AddDependency(awsAuthConfigMap)
+		}
+	}
+
+	// 部署 Prometheus + Grafana 监控栈（在HyperPod组件之后）
+	if eksInstance.PrometheusStackVersion != "" {
+		prometheusChart := deployPrometheusStack(ctx.Stack, cluster, eksInstance)
+		if prometheusChart != nil {
+			prometheusChart.Node().AddDependency(awsAuthConfigMap)
+			// 如果有HyperPod组件，确保在其之后部署
+			if hyperPodJob != nil {
+				prometheusChart.Node().AddDependency(hyperPodJob)
+			}
+		}
+	}
+
+	// 部署 Ray Operator（在HyperPod组件之后）
+	if eksInstance.RayOperatorVersion != "" {
+		rayOperatorChart := deployRayOperator(ctx.Stack, cluster, eksInstance.RayOperatorVersion)
+		if rayOperatorChart != nil {
+			rayOperatorChart.Node().AddDependency(awsAuthConfigMap)
+			// 如果有HyperPod组件，确保在其之后部署
+			if hyperPodJob != nil {
+				rayOperatorChart.Node().AddDependency(hyperPodJob)
+			}
 		}
 	}
 

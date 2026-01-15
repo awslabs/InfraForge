@@ -92,6 +92,8 @@ commentTrainingOperatorVersion = "=== https://github.com/kubeflow/trainer/tags =
 trainingOperatorVersion = "1.9.3"
 commentMlflowVersion = "=== https://artifacthub.io/packages/helm/community-charts/mlflow ==="
 mlflowVersion = "1.8.0"
+commentRayOperatorVersion = "=== https://artifacthub.io/packages/helm/kuberay-operator/kuberay-operator ==="
+rayOperatorVersion = "latest"
 enableHyperPodComponents = false
 useModernTrainingOperator = false
 commentKarpenterVersion = "=== https://karpenter.sh ==="

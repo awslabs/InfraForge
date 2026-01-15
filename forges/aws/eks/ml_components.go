@@ -183,3 +183,19 @@ func deployModernTrainingOperator(stack awscdk.Stack, cluster awseks.Cluster, ve
 	//fmt.Printf("已配置新版 Training Operator %s 安装\n", version)
 	return trainingRuntimesJob
 }
+
+// deployRayOperator 部署 Ray Operator
+func deployRayOperator(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.HelmChart {
+	helmOptions := &awseks.HelmChartOptions{
+		Chart:           jsii.String("kuberay-operator"),
+		Repository:      jsii.String("https://ray-project.github.io/kuberay-helm/"),
+		Namespace:       jsii.String("ray-system"),
+		CreateNamespace: jsii.Bool(true),
+	}
+
+	if version != "" && version != "latest" {
+		helmOptions.Version = jsii.String(version)
+	}
+
+	return cluster.AddHelmChart(jsii.String("ray-operator"), helmOptions)
+}
