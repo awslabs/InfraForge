@@ -152,7 +152,13 @@ func (r *RdsForge) createInstance(stack awscdk.Stack, rdsInstance *RdsInstanceCo
 	} else {
 		// 非托管密码 - 使用幂等性密码生成
 		secretName := fmt.Sprintf("%s-%s-password", *stack.StackName(), rdsInstance.GetID())
-		password, customSecret := utilsSecurity.GetOrCreateSecretPassword(stack, rdsInstance.GetID()+"-password", secretName, 30)
+		password, customSecret := utilsSecurity.GetOrCreateSecretPassword(
+			stack, 
+			rdsInstance.GetID()+"-password", 
+			secretName,
+			fmt.Sprintf("RDS password for %s", rdsInstance.GetID()),
+			30,
+		)
 		secret = customSecret
 		
 		credentials = awsrds.Credentials_FromPassword(
@@ -233,7 +239,13 @@ func (r *RdsForge) createCluster(stack awscdk.Stack, rdsInstance *RdsInstanceCon
 	} else {
 		// 使用纯文本密码
 		secretName := fmt.Sprintf("%s-%s-password", *stack.StackName(), rdsInstance.GetID())
-		passwordSecret, customSecret := utilsSecurity.GetOrCreateSecretPassword(stack, rdsInstance.GetID()+"-password", secretName, 30)
+		passwordSecret, customSecret := utilsSecurity.GetOrCreateSecretPassword(
+			stack, 
+			rdsInstance.GetID()+"-password", 
+			secretName,
+			fmt.Sprintf("RDS Aurora password for %s", rdsInstance.GetID()),
+			30,
+		)
 		secret = customSecret
 		credentials = awsrds.Credentials_FromPassword(jsii.String(username), awscdk.SecretValue_UnsafePlainText(jsii.String(passwordSecret)))
 	}

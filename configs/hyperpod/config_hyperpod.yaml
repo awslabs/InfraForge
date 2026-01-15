@@ -74,6 +74,11 @@ forges:
       efsCsiDriverVersion: latest
       commentFsxCsiDriverVersion: === https://github.com/kubernetes-sigs/aws-fsx-csi-driver/releases ===
       fsxCsiDriverVersion: latest
+      commentPrometheusStackVersion: === https://github.com/prometheus-community/helm-charts/releases ===
+      prometheusStackVersion: latest
+      prometheusRetention: 30d
+      prometheusStorageSize: 50Gi
+      grafanaStorageSize: 10Gi
       s3BucketName: aws-infra-forge
       deployCsiDriver: false
       createStorageClass: false

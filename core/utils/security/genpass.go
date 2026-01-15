@@ -147,22 +147,25 @@ func checkSecretExists(secretName string) bool {
 
 // GetOrCreateSecretPassword 创建或获取一个 Secret，并直接返回密码和 Secret 对象
 // 
-// 重要说明：此函数使用UnsafePlainText存储密码，这是AWS ParallelCluster的官方要求
-// AWS ParallelCluster文档明确要求密码必须以明文形式存储在Secrets Manager中：
-// "When you create a secret using the AWS Secrets Manager console be sure to select 
-// "Other type of secret", select plaintext, and only include the password text in the secret."
+// 重要说明：此函数使用UnsafePlainText存储密码，适用于需要明文密码的场景
 // 
-// 参考文档：https://docs.aws.amazon.com/parallelcluster/latest/ug/Scheduling-v3.html#yaml-Scheduling-SlurmSettings-Database-PasswordSecretArn
+// 典型使用场景：
+// 1. AWS ParallelCluster: 要求密码必须以明文形式存储在Secrets Manager中
+//    参考文档：https://docs.aws.amazon.com/parallelcluster/latest/ug/Scheduling-v3.html#yaml-Scheduling-SlurmSettings-Database-PasswordSecretArn
+//    "When you create a secret using the AWS Secrets Manager console be sure to select 
+//    'Other type of secret', select plaintext, and only include the password text in the secret."
+// 2. Grafana等应用：需要在Helm配置中直接使用明文密码
 //
 // 参数:
 //   - stack: CDK 堆栈
 //   - id: 构造 ID
 //   - secretName: Secret 名称
+//   - description: Secret 描述信息
 //   - length: 如果需要创建新密码，指定密码长度
 // 返回:
 //   - string: 密码明文
 //   - awssecretsmanager.Secret: Secret 对象
-func GetOrCreateSecretPassword(stack awscdk.Stack, id string, secretName string, length int) (string, awssecretsmanager.Secret) {
+func GetOrCreateSecretPassword(stack awscdk.Stack, id string, secretName string, description string, length int) (string, awssecretsmanager.Secret) {
 	var password string
 	var secret awssecretsmanager.Secret
 
@@ -224,15 +227,10 @@ func GetOrCreateSecretPassword(stack awscdk.Stack, id string, secretName string,
 	// 创建或更新 SSM 参数, 这样保证第二次运行，还是认为这个属于此 stack
 	// 无论Secret是否存在，都创建一个新的Secret构造
 	// 这样可以确保它属于当前堆栈
-	// 创建Secret - 使用UnsafePlainText是AWS ParallelCluster的官方要求
-	// 根据AWS ParallelCluster文档：
-	// https://docs.aws.amazon.com/parallelcluster/latest/ug/Scheduling-v3.html#yaml-Scheduling-SlurmSettings-Database-PasswordSecretArn
-	// "When you create a secret using the AWS Secrets Manager console be sure to select 
-	// "Other type of secret", select plaintext, and only include the password text in the secret."
-	// ParallelCluster需要明文密码用于Slurm数据库认证，不支持JSON格式的密码
+	// 创建Secret - 使用UnsafePlainText存储明文密码
 	secret = awssecretsmanager.NewSecret(stack, jsii.String(id), &awssecretsmanager.SecretProps{
 		SecretName: jsii.String(secretName),
-		Description: jsii.String(fmt.Sprintf("Password for %s (ParallelCluster plaintext requirement)", secretName)),
+		Description: jsii.String(description),
 		SecretStringValue: awscdk.SecretValue_UnsafePlainText(jsii.String(password)),
 	})
 

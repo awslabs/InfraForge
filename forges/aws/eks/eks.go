@@ -85,6 +85,12 @@ type EksInstanceConfig struct {
 	// 用于支持 MLflow
 	MlflowVersion                string `json:"mlflowVersion,omitempty"`                // MLflow 版本，不为空时安装
 
+	// 用于支持 Prometheus + Grafana 监控栈（依赖EBS CSI Driver）
+	PrometheusStackVersion       string `json:"prometheusStackVersion,omitempty"`       // kube-prometheus-stack版本，留空使用最新版
+	PrometheusRetention          string `json:"prometheusRetention,omitempty"`          // Prometheus数据保留时间，默认30d
+	PrometheusStorageSize        string `json:"prometheusStorageSize,omitempty"`        // Prometheus存储大小，默认50Gi
+	GrafanaStorageSize           string `json:"grafanaStorageSize,omitempty"`           // Grafana存储大小，默认10Gi
+
 	// 用于支持 HyperPod 专用组件
 	EnableHyperPodComponents     *bool  `json:"enableHyperPodComponents,omitempty"`     // 是否启用 HyperPod 专用组件
 	NeuronDevicePluginVersion    string `json:"neuronDevicePluginVersion,omitempty"`   // Neuron Device Plugin 版本
@@ -543,6 +549,14 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 		s3CsiChart := deployMountpointS3CsiDriverWithStorage(ctx.Stack, cluster, eksInstance)
 		if s3CsiChart != nil {
 			s3CsiChart.Node().AddDependency(awsAuthConfigMap)
+		}
+	}
+
+	// 部署 Prometheus + Grafana 监控栈（如果指定了版本）
+	if eksInstance.PrometheusStackVersion != "" {
+		prometheusChart := deployPrometheusStack(ctx.Stack, cluster, eksInstance)
+		if prometheusChart != nil {
+			prometheusChart.Node().AddDependency(awsAuthConfigMap)
 		}
 	}
 

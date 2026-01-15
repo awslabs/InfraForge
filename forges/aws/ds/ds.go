@@ -83,7 +83,13 @@ func (d *DsForge) Create(ctx *interfaces.ForgeContext) interface{} {
 
 	// 获取或创建密码和Secret对象
 	dsPassId := fmt.Sprintf("%s-DSPassword", dsInstance.GetID())
-	password, secret := security.GetOrCreateSecretPassword(ctx.Stack, dsPassId, secretName, 30)
+	password, secret := security.GetOrCreateSecretPassword(
+		ctx.Stack, 
+		dsPassId, 
+		secretName,
+		fmt.Sprintf("Directory Service password for %s", dsInstance.GetID()),
+		30,
+	)
 
         // 保存密码引用
         d.secret = secret
