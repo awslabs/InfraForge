@@ -90,6 +90,7 @@ type EksInstanceConfig struct {
 	PrometheusRetention          string `json:"prometheusRetention,omitempty"`          // Prometheus数据保留时间，默认30d
 	PrometheusStorageSize        string `json:"prometheusStorageSize,omitempty"`        // Prometheus存储大小，默认50Gi
 	GrafanaStorageSize           string `json:"grafanaStorageSize,omitempty"`           // Grafana存储大小，默认10Gi
+	DcgmExporterVersion          string `json:"dcgmExporterVersion,omitempty"`          // DCGM Exporter版本，留空不部署，可指定版本或latest
 
 	// 用于支持 Ray Operator
 	RayOperatorVersion           string `json:"rayOperatorVersion,omitempty"`           // Ray Operator版本，留空使用最新版
@@ -657,6 +658,14 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 			// 如果有HyperPod组件，确保在其之后部署
 			if hyperPodJob != nil {
 				prometheusChart.Node().AddDependency(hyperPodJob)
+			}
+
+			// 部署 DCGM Exporter（在Prometheus Stack之后）
+			if eksInstance.DcgmExporterVersion != "" {
+				dcgmChart := deployDcgmExporter(cluster, eksInstance)
+				if dcgmChart != nil {
+					dcgmChart.Node().AddDependency(prometheusChart)
+				}
 			}
 		}
 	}

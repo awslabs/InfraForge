@@ -93,6 +93,8 @@
                 "prometheusRetention": "30d",
                 "prometheusStorageSize": "50Gi",
                 "grafanaStorageSize": "10Gi",
+                "commentDcgmExporterVersion": "=== https://github.com/NVIDIA/dcgm-exporter/releases ===",
+                "dcgmExporterVersion": "latest",
                 "s3BucketName": "aws-infra-forge",
                 "deployCsiDriver": false,
                 "createStorageClass": false,
