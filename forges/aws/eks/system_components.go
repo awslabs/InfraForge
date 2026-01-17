@@ -495,3 +495,67 @@ func deployPodIdentityAgent(stack awscdk.Stack, cluster awseks.Cluster, version 
 
 	return cluster.AddManifest(jsii.String("pod-identity-agent"), &podIdentityAgentManifest)
 }
+
+// deployIstio 部署 Istio (使用 Helm)
+func deployIstio(stack awscdk.Stack, cluster awseks.Cluster, version string) awseks.HelmChart {
+	helmRepo := jsii.String("https://istio-release.storage.googleapis.com/charts")
+	
+	// 1. 安装 Istio Base (CRDs)
+	baseOptions := &awseks.HelmChartOptions{
+		Chart:           jsii.String("base"),
+		Repository:      helmRepo,
+		Namespace:       jsii.String("istio-system"),
+		CreateNamespace: jsii.Bool(true),
+		Release:         jsii.String("istio-base"),
+		Values: &map[string]interface{}{
+			"defaultRevision": "default",
+		},
+	}
+	if version != "" && version != "latest" {
+		baseOptions.Version = jsii.String(version)
+	}
+	baseChart := cluster.AddHelmChart(jsii.String("istio-base"), baseOptions)
+
+	// 2. 安装 Istiod (控制平面)
+	istiodOptions := &awseks.HelmChartOptions{
+		Chart:      jsii.String("istiod"),
+		Repository: helmRepo,
+		Namespace:  jsii.String("istio-system"),
+		Release:    jsii.String("istiod"),
+	}
+	if version != "" && version != "latest" {
+		istiodOptions.Version = jsii.String(version)
+	}
+	istiodChart := cluster.AddHelmChart(jsii.String("istiod"), istiodOptions)
+	istiodChart.Node().AddDependency(baseChart)
+
+	// 3. 安装 Istio Ingress Gateway
+	gatewayOptions := &awseks.HelmChartOptions{
+		Chart:           jsii.String("gateway"),
+		Repository:      helmRepo,
+		Namespace:       jsii.String("istio-ingress"),
+		CreateNamespace: jsii.Bool(true),
+		Release:         jsii.String("istio-ingress"),
+	}
+	if version != "" && version != "latest" {
+		gatewayOptions.Version = jsii.String(version)
+	}
+	gatewayChart := cluster.AddHelmChart(jsii.String("istio-ingress"), gatewayOptions)
+	gatewayChart.Node().AddDependency(istiodChart)
+
+	// 创建 Istio IngressClass
+	ingressClassMap := map[string]interface{}{
+		"apiVersion": "networking.k8s.io/v1",
+		"kind":       "IngressClass",
+		"metadata": map[string]interface{}{
+			"name": "istio",
+		},
+		"spec": map[string]interface{}{
+			"controller": "istio.io/ingress-controller",
+		},
+	}
+	ingressClass := cluster.AddManifest(jsii.String("istio-ingressclass"), &ingressClassMap)
+	ingressClass.Node().AddDependency(gatewayChart)
+
+	return gatewayChart
+}

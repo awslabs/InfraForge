@@ -95,6 +95,13 @@ type EksInstanceConfig struct {
 	// 用于支持 Ray Operator
 	RayOperatorVersion           string `json:"rayOperatorVersion,omitempty"`           // Ray Operator版本，留空使用最新版
 
+	// 用于支持 KServe
+	KServeVersion                string `json:"kserveVersion,omitempty"`                // KServe版本，留空不部署
+	KServeIngressClass           string `json:"kserveIngressClass,omitempty"`           // KServe Ingress类名，默认istio
+
+	// 用于支持 Istio
+	IstioVersion                 string `json:"istioVersion,omitempty"`                 // Istio版本，留空不部署
+
 	// 用于支持 HyperPod 专用组件
 	EnableHyperPodComponents     *bool  `json:"enableHyperPodComponents,omitempty"`     // 是否启用 HyperPod 专用组件
 	NeuronDevicePluginVersion    string `json:"neuronDevicePluginVersion,omitempty"`   // Neuron Device Plugin 版本
@@ -678,6 +685,39 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 			// 如果有HyperPod组件，确保在其之后部署
 			if hyperPodJob != nil {
 				rayOperatorChart.Node().AddDependency(hyperPodJob)
+			}
+		}
+	}
+
+	// 部署 Istio
+	var istioChart awseks.HelmChart
+	if eksInstance.IstioVersion != "" {
+		istioChart = deployIstio(ctx.Stack, cluster, eksInstance.IstioVersion)
+		if istioChart != nil {
+			istioChart.Node().AddDependency(awsAuthConfigMap)
+			// 如果有HyperPod组件，确保在其之后部署
+			if hyperPodJob != nil {
+				istioChart.Node().AddDependency(hyperPodJob)
+			}
+		}
+	}
+
+	// 部署 KServe
+	if eksInstance.KServeVersion != "" {
+		kserveChart := deployKServe(ctx.Stack, cluster, eksInstance.KServeVersion, eksInstance.KServeIngressClass)
+		if kserveChart != nil {
+			kserveChart.Node().AddDependency(awsAuthConfigMap)
+			// KServe 需要在 Cert Manager 之后部署
+			if certManagerChart != nil {
+				kserveChart.Node().AddDependency(certManagerChart)
+			}
+			// 如果部署了 Istio，KServe 应该在 Istio 之后部署
+			if istioChart != nil {
+				kserveChart.Node().AddDependency(istioChart)
+			}
+			// 如果有HyperPod组件，确保在其之后部署
+			if hyperPodJob != nil {
+				kserveChart.Node().AddDependency(hyperPodJob)
 			}
 		}
 	}

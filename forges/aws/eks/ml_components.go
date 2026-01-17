@@ -199,3 +199,45 @@ func deployRayOperator(stack awscdk.Stack, cluster awseks.Cluster, version strin
 
 	return cluster.AddHelmChart(jsii.String("ray-operator"), helmOptions)
 }
+
+// deployKServe 部署 KServe (使用 Helm)
+func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, ingressClass string) awseks.HelmChart {
+	// 默认使用 istio
+	if ingressClass == "" {
+		ingressClass = "istio"
+	}
+
+	// 先安装 CRDs
+	crdChart := cluster.AddHelmChart(jsii.String("kserve-crd"), &awseks.HelmChartOptions{
+		Chart:           jsii.String("oci://ghcr.io/kserve/charts/kserve-crd"),
+		Version:         jsii.String(fmt.Sprintf("v%s", version)),
+		Release:         jsii.String("kserve-crd"),
+		Namespace:       jsii.String("kserve"),
+		CreateNamespace: jsii.Bool(true),
+	})
+
+	// 再安装 KServe Controller，配置为 RawDeployment 模式
+	kserveChart := cluster.AddHelmChart(jsii.String("kserve"), &awseks.HelmChartOptions{
+		Chart:     jsii.String("oci://ghcr.io/kserve/charts/kserve"),
+		Version:   jsii.String(fmt.Sprintf("v%s", version)),
+		Release:   jsii.String("kserve"),
+		Namespace: jsii.String("kserve"),
+		Values: &map[string]interface{}{
+			"kserve": map[string]interface{}{
+				"controller": map[string]interface{}{
+					"deploymentMode": "RawDeployment",
+					"gateway": map[string]interface{}{
+						"ingressGateway": map[string]interface{}{
+							"className": ingressClass,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	// 确保 Controller 在 CRDs 之后安装
+	kserveChart.Node().AddDependency(crdChart)
+
+	return kserveChart
+}

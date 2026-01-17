@@ -94,6 +94,11 @@ forges:
       mlflowVersion: 1.8.0
       commentRayOperatorVersion: === https://artifacthub.io/packages/helm/kuberay-operator/kuberay-operator ===
       rayOperatorVersion: latest
+      commentIstioVersion: === https://istio.io/latest/docs/releases/supported-releases ===
+      istioVersion: latest
+      commentKserveVersion: === https://github.com/kserve/kserve/releases ===
+      kserveVersion: 0.16.0
+      kServeIngressClass: istio
       enableHyperPodComponents: false
       useModernTrainingOperator: false
       commentKarpenterVersion: === https://karpenter.sh ===
