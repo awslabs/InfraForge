@@ -8,7 +8,9 @@ import (
 	
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awseks"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awsiam"
 	"github.com/aws/jsii-runtime-go"
+	"github.com/awslabs/InfraForge/core/partition"
 )
 
 // deployMlflow 部署 MLflow
@@ -201,10 +203,37 @@ func deployRayOperator(stack awscdk.Stack, cluster awseks.Cluster, version strin
 }
 
 // deployKServe 部署 KServe (使用 Helm)
-func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, ingressClass string) awseks.HelmChart {
+func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, ingressClass string, s3BucketName string) awseks.HelmChart {
 	// 默认使用 istio
 	if ingressClass == "" {
 		ingressClass = "istio"
+	}
+
+	// 创建 ServiceAccount 用于 KServe 访问 S3
+	kserveServiceAccount := cluster.AddServiceAccount(jsii.String("kserve-sa"), &awseks.ServiceAccountOptions{
+		Name:      jsii.String("kserve-sa"),
+		Namespace: jsii.String("default"),
+	})
+
+	// 如果指定了 S3 bucket，创建 S3 访问策略
+	if s3BucketName != "" {
+		kserveS3Policy := awsiam.NewPolicy(stack, jsii.String("KServeS3AccessPolicy"), &awsiam.PolicyProps{
+			Statements: &[]awsiam.PolicyStatement{
+				awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{
+					Effect: awsiam.Effect_ALLOW,
+					Actions: jsii.Strings(
+						"s3:GetObject",
+						"s3:ListBucket",
+					),
+					Resources: jsii.Strings(
+						fmt.Sprintf("arn:%s:s3:::%s", partition.DefaultPartition, s3BucketName),
+						fmt.Sprintf("arn:%s:s3:::%s/*", partition.DefaultPartition, s3BucketName),
+					),
+				}),
+			},
+		})
+		// 将策略附加到 ServiceAccount 的角色
+		kserveServiceAccount.Role().AttachInlinePolicy(kserveS3Policy)
 	}
 
 	// 先安装 CRDs
@@ -238,6 +267,48 @@ func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, in
 
 	// 确保 Controller 在 CRDs 之后安装
 	kserveChart.Node().AddDependency(crdChart)
+	// 确保 ServiceAccount 在 Helm chart 之前创建
+	kserveChart.Node().AddDependency(kserveServiceAccount)
+
+	// 修复 KServe webhook 配置，避免删除 InferenceService 时卡住
+	// 参考: https://github.com/kserve/kserve/issues/xxx
+	webhookPatchManifest := cluster.AddManifest(jsii.String("kserve-webhook-patch"), &map[string]interface{}{
+		"apiVersion": "admissionregistration.k8s.io/v1",
+		"kind":       "ValidatingWebhookConfiguration",
+		"metadata": map[string]interface{}{
+			"name": "inferenceservice.serving.kserve.io",
+		},
+		"webhooks": []map[string]interface{}{
+			{
+				"name": "inferenceservice.kserve-webhook-server.validator",
+				"admissionReviewVersions": []string{"v1", "v1beta1"},
+				"clientConfig": map[string]interface{}{
+					"service": map[string]interface{}{
+						"name":      "kserve-webhook-server-service",
+						"namespace": "kserve",
+						"path":      "/validate-serving-kserve-io-v1beta1-inferenceservice",
+					},
+				},
+				"failurePolicy": "Ignore", // 关键：失败时忽略，允许删除继续
+				"matchPolicy":   "Equivalent",
+				"namespaceSelector": map[string]interface{}{},
+				"objectSelector":    map[string]interface{}{},
+				"rules": []map[string]interface{}{
+					{
+						"apiGroups":   []string{"serving.kserve.io"},
+						"apiVersions": []string{"v1beta1"},
+						"operations":  []string{"CREATE", "UPDATE"}, // 关键：只验证创建和更新，不验证删除
+						"resources":   []string{"inferenceservices"},
+						"scope":       "*",
+					},
+				},
+				"sideEffects":    "None",
+				"timeoutSeconds": 10,
+			},
+		},
+	})
+	// 确保在 KServe 安装后应用 webhook patch
+	webhookPatchManifest.Node().AddDependency(kserveChart)
 
 	return kserveChart
 }

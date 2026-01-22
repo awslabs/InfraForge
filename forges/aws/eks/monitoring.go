@@ -182,6 +182,17 @@ func deployDcgmExporter(cluster awseks.Cluster, eksInstance *EksInstanceConfig) 
 			"serviceMonitor": map[string]interface{}{
 				"enabled": true,
 			},
+			// 增加资源限制，避免 OOM
+			"resources": map[string]interface{}{
+				"requests": map[string]interface{}{
+					"cpu":    "100m",
+					"memory": "256Mi", // 从 128Mi 增加到 256Mi
+				},
+				"limits": map[string]interface{}{
+					"cpu":    "200m",
+					"memory": "512Mi", // 从 256Mi 增加到 512Mi
+				},
+			},
 		},
 	}
 

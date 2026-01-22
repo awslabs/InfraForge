@@ -536,6 +536,16 @@ func deployIstio(stack awscdk.Stack, cluster awseks.Cluster, version string) aws
 		Namespace:       jsii.String("istio-ingress"),
 		CreateNamespace: jsii.Bool(true),
 		Release:         jsii.String("istio-ingress"),
+		Values: &map[string]interface{}{
+			"service": map[string]interface{}{
+				"type": "LoadBalancer",
+				"annotations": map[string]interface{}{
+					"service.beta.kubernetes.io/aws-load-balancer-type":               "external",
+					"service.beta.kubernetes.io/aws-load-balancer-nlb-target-type":    "ip",
+					"service.beta.kubernetes.io/aws-load-balancer-scheme":             "internet-facing",
+				},
+			},
+		},
 	}
 	if version != "" && version != "latest" {
 		gatewayOptions.Version = jsii.String(version)

@@ -557,8 +557,10 @@ func getClusterEngineFromString(engine string, version string) awsrds.IClusterEn
 		if version == "" {
 			version = DefaultAuroraPostgresVersion
 		}
+		// Aurora PostgreSQL: 17.7 -> 17
+		majorVersion := strings.Split(version, ".")[0]
 		return awsrds.DatabaseClusterEngine_AuroraPostgres(&awsrds.AuroraPostgresClusterEngineProps{
-			Version: awsrds.AuroraPostgresEngineVersion_Of(jsii.String(version), nil, nil),
+			Version: awsrds.AuroraPostgresEngineVersion_Of(jsii.String(version), jsii.String(majorVersion), nil),
 		})
 	default:
 		if version == "" {

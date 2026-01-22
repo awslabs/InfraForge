@@ -704,7 +704,7 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 
 	// 部署 KServe
 	if eksInstance.KServeVersion != "" {
-		kserveChart := deployKServe(ctx.Stack, cluster, eksInstance.KServeVersion, eksInstance.KServeIngressClass)
+		kserveChart := deployKServe(ctx.Stack, cluster, eksInstance.KServeVersion, eksInstance.KServeIngressClass, eksInstance.S3BucketName)
 		if kserveChart != nil {
 			kserveChart.Node().AddDependency(awsAuthConfigMap)
 			// KServe 需要在 Cert Manager 之后部署
