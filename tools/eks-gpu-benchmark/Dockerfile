@@ -2,18 +2,19 @@
 FROM nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu24.04 as builder
 
 # 版本定义 - 方便维护和升级
-ARG NCCL_TESTS_VERSION=2.17.1
+ARG NCCL_TESTS_VERSION=2.17.6
 ARG OSU_VERSION=7.5.1
 ARG IOR_VERSION=4.0.0
 ARG PERFTEST_VERSION=25.07.0-0.104
 ARG FABTESTS_VERSION=2.3.0
 ARG SOCKPERF_VERSION=3.10
-ARG EFA_INSTALLER_VERSION=1.43.2
-ARG AWS_OFI_NCCL_VERSION=1.16.3
+ARG EFA_INSTALLER_VERSION=1.44.0
+ARG AWS_OFI_NCCL_VERSION=1.17.2
 ARG GDRCOPY_VERSION=2.5.1
-ARG NCCL_VERSION=2.28.3-1
+ARG NCCL_VERSION=2.28.9-1
 ARG NVBANDWIDTH_VERSION=0.8
 ARG NVSHMEM_VERSION=3.4.5
+ARG CUDA_HOME=/usr/local/cuda
 
 # 系统更新和清理预装包
 RUN apt-get update -y && apt-get upgrade -y \
@@ -179,7 +180,7 @@ RUN set -e \
 
 # 运行时镜像 - 只保留必要文件
 FROM nvcr.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
-ARG EFA_INSTALLER_VERSION=1.43.2
+ARG EFA_INSTALLER_VERSION=1.44.0
 
 # 安装运行时依赖
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -211,6 +212,13 @@ RUN set -e \
     && chmod +x kubectl && mv kubectl /opt/kube/kubectl \
     && ln -sf /opt/kube/kubectl /usr/local/bin/kubectl \
     && curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
+    && if [ -d "/usr/local/cuda/lib64" ]; then \
+           cd /usr/local/cuda/lib64 && \
+           for major in $(ls *.so.[0-9]* 2>/dev/null | grep -E '\.so\.[0-9]+$' | sort -u); do \
+               base=$(echo $major | sed 's/\.so\.[0-9]*$/.so/'); \
+               ln -snf $major $base; \
+           done; \
+       fi \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制必要的运行时组件
@@ -222,11 +230,19 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/extras/CUPTI/lib64:/opt/amazon/openmpi/lib:/
     PATH=/infraforge/bin:/opt/amazon/openmpi/bin:/opt/amazon/efa/bin:/opt/kube:$PATH \
     LIBRARY_PATH=/infraforge/lib:$LIBRARY_PATH \
     CPATH=/infraforge/include:$CPATH \
+    CUDA_HOME=/usr/local/cuda \
+    FI_EFA_USE_DEVICE_RDMA=0 \
+    FI_EFA_ENABLE_SHM_TRANSFER=0 \
+    OMPI_ALLOW_RUN_AS_ROOT=1 \
+    OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+    OMPI_MCA_plm_rsh_no_tree_spawn=1 \
     OMPI_MCA_mtl=ofi \
     OMPI_MCA_pml=cm \
     OMPI_MCA_mtl_ofi_provider_exclude=shm,sockets,udp,rstream,usnic,net \
     OPAL_PREFIX=/opt/amazon/openmpi \
     NCCL_SOCKET_IFNAME=^docker,lo,veth \
+    NCCL_NET_PLUGIN=/infraforge/lib/libnccl-net.so \
+    NCCL_TUNER_PLUGIN=/infraforge/lib/libnccl-ofi-tuner.so \
     NCCL_CROSS_NIC=1 \
     PMIX_MCA_gds=hash \
     NCCL_DEBUG=INFO \
