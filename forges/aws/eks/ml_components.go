@@ -271,39 +271,48 @@ func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, in
 	kserveChart.Node().AddDependency(kserveServiceAccount)
 
 	// 修复 KServe webhook 配置，避免删除 InferenceService 时卡住
-	// 参考: https://github.com/kserve/kserve/issues/xxx
-	webhookPatchManifest := cluster.AddManifest(jsii.String("kserve-webhook-patch"), &map[string]interface{}{
-		"apiVersion": "admissionregistration.k8s.io/v1",
-		"kind":       "ValidatingWebhookConfiguration",
-		"metadata": map[string]interface{}{
-			"name": "inferenceservice.serving.kserve.io",
-		},
-		"webhooks": []map[string]interface{}{
+	// 问题：默认 webhook 会验证 DELETE 操作，如果 webhook server 不可用会导致删除失败
+	// 解决：1) failurePolicy=Ignore - webhook 失败时允许操作继续
+	//      2) operations 只包含 CREATE/UPDATE - 跳过 DELETE 验证
+	// 使用 NewKubernetesManifest + Overwrite 避免升级时资源冲突
+	webhookPatchManifest := awseks.NewKubernetesManifest(stack, jsii.String("kserve-webhook-patch"), &awseks.KubernetesManifestProps{
+		Cluster:   cluster,
+		Overwrite: jsii.Bool(true),
+		Manifest: &[]*map[string]interface{}{
 			{
-				"name": "inferenceservice.kserve-webhook-server.validator",
-				"admissionReviewVersions": []string{"v1", "v1beta1"},
-				"clientConfig": map[string]interface{}{
-					"service": map[string]interface{}{
-						"name":      "kserve-webhook-server-service",
-						"namespace": "kserve",
-						"path":      "/validate-serving-kserve-io-v1beta1-inferenceservice",
-					},
+				"apiVersion": "admissionregistration.k8s.io/v1",
+				"kind":       "ValidatingWebhookConfiguration",
+				"metadata": map[string]interface{}{
+					"name": "inferenceservice.serving.kserve.io",
 				},
-				"failurePolicy": "Ignore", // 关键：失败时忽略，允许删除继续
-				"matchPolicy":   "Equivalent",
-				"namespaceSelector": map[string]interface{}{},
-				"objectSelector":    map[string]interface{}{},
-				"rules": []map[string]interface{}{
+				"webhooks": []map[string]interface{}{
 					{
-						"apiGroups":   []string{"serving.kserve.io"},
-						"apiVersions": []string{"v1beta1"},
-						"operations":  []string{"CREATE", "UPDATE"}, // 关键：只验证创建和更新，不验证删除
-						"resources":   []string{"inferenceservices"},
-						"scope":       "*",
+						"name":                    "inferenceservice.kserve-webhook-server.validator",
+						"admissionReviewVersions": []string{"v1", "v1beta1"},
+						"clientConfig": map[string]interface{}{
+							"service": map[string]interface{}{
+								"name":      "kserve-webhook-server-service",
+								"namespace": "kserve",
+								"path":      "/validate-serving-kserve-io-v1beta1-inferenceservice",
+							},
+						},
+						"failurePolicy":     "Ignore",
+						"matchPolicy":       "Equivalent",
+						"namespaceSelector": map[string]interface{}{},
+						"objectSelector":    map[string]interface{}{},
+						"rules": []map[string]interface{}{
+							{
+								"apiGroups":   []string{"serving.kserve.io"},
+								"apiVersions": []string{"v1beta1"},
+								"operations":  []string{"CREATE", "UPDATE"}, // 不包含 DELETE，避免删除时被 webhook 阻塞
+								"resources":   []string{"inferenceservices"},
+								"scope":       "*",
+							},
+						},
+						"sideEffects":    "None",
+						"timeoutSeconds": 10,
 					},
 				},
-				"sideEffects":    "None",
-				"timeoutSeconds": 10,
 			},
 		},
 	})
