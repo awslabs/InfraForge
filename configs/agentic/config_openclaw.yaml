@@ -1,0 +1,60 @@
+global:
+  stackName: aws-infra-forge
+  dualStack: true
+  description: 'OpenClaw AI Assistant Deployment: Automated deployment of OpenClaw with AWS Bedrock integration. Provisions EC2 instances with OpenClaw gateway and ClawHub web interface pre-configured. Supports customizable Bedrock models via userDataToken parameter (format: openclaw-nonroot:model=<model-id>;region=<region>). Includes systemd service management, token-based authentication, and multiple access methods (direct, SSH tunnel, SSM port forwarding). Requires IAM policies for Bedrock and SSM access.'
+enabledForges:
+  - openclaw
+forges:
+  vpc:
+    defaults:
+      id: vpc
+      type: VPC
+      cidrBlock: 10.69.0.0/16
+      natGatewayPerAZ: false
+  ec2:
+    defaults:
+      type: EC2
+      security: private
+      subnet: private
+      azIndex: 2
+      debug: false
+      instanceType: c7g.xlarge
+      instanceCount: 1
+      keyName: aws-infra-forge
+      detailedMonitoring: false
+      ebsVolumeType: gp3
+      ebsSize: "30"
+      ebsThroughput: "125"
+      ebsIops: "3000"
+      ebsOptimized: false
+      enclaveEnabled: false
+      networkCardCount: 1
+      eniCount: 1
+      purchaseOption: od
+      spotMaxPrice: ""
+      capacityBlockId: ""
+      enableEfa: false
+      enaSrdEnabled: false
+      osArch: aarch64
+      osName: amazon
+      osType: linux
+      osVersion: "2023"
+      policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore
+      s3Location: s3://aws-infra-forge
+      allowedPorts: 22@0.0.0.0/0;80,443,8443@10.69.0.0/16
+      allowedPortsIpv6: 22,80,443,8443@::/0
+      requireImdsv2: true
+      userDataScriptPath: ""
+      userDataToken: sysinfo
+    instances:
+      - id: openclaw
+        instanceType: c7g.xlarge
+        ebsSize: "200"
+        osName: ubuntu
+        osVersion: "24.04"
+        security: private
+        subnet: private
+        allowedPorts: 22,18789@10.69.0.0/16;80,443,8443@10.69.0.0/16
+        allowedPortsIpv6: 22,80,443,8443,18789@::/0
+        policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonBedrockFullAccess
+        userDataToken: openclaw-nonroot:model=us.anthropic.claude-sonnet-4-5-20250929-v1:0;region=us-west-2

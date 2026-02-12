@@ -172,7 +172,7 @@
                 "allowedPorts": "22,8443@0.0.0.0/0",
                 "allowedPortsIpv6": "22,8443@::/0",
                 "UserDataScriptPath": "https://aws-hpc-builder.s3.amazonaws.com/project/user_data",
-                "version": "3.14.0"
+                "version": "3.14.1"
             },
             "instances": [
                 {
