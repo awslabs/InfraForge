@@ -106,6 +106,11 @@ type ParallelClusterInstanceConfig struct {
 	// Additional configuration
 	Policies  string `json:"policies,omitempty"`
 	DependsOn string `json:"dependsOn"`
+
+	// Tags: 扁平字符串格式 "Key1=Value1,Key2=Value2"
+	Tags        string `json:"tags,omitempty"`        // 集群顶层 tags，应用于所有资源（含 HeadNode）
+	CpuNodeTags string `json:"cpuNodeTags,omitempty"` // CPU 队列 tags（cpu / cpu-spot）
+	GpuNodeTags string `json:"gpuNodeTags,omitempty"` // GPU 队列 tags（gpu / gpu-spot）
 }
 
 // ParallelClusterForge implements the Forge interface for AWS ParallelCluster
@@ -274,6 +279,11 @@ func (f *ParallelClusterForge) Create(ctx *interfaces.ForgeContext) interface{} 
 		},
 	}
 	
+	// 添加集群顶层 Tags（应用于 HeadNode 和所有计算节点）
+	if pcInstance.Tags != "" {
+		clusterConfig["Tags"] = parseTagsToList(pcInstance.Tags)
+	}
+
 	// 添加 ScalingStrategy 配置
 	if pcInstance.ScalingStrategy != "" {
 		scheduling := clusterConfig["Scheduling"].(map[string]interface{})
@@ -668,6 +678,18 @@ func (f *ParallelClusterForge) MergeConfigs(defaults config.InstanceConfig, inst
 		merged.ComputeCustomAmi = parallelClusterInstance.ComputeCustomAmi
 	}
 
+	if parallelClusterInstance.Tags != "" {
+		merged.Tags = parallelClusterInstance.Tags
+	}
+
+	if parallelClusterInstance.CpuNodeTags != "" {
+		merged.CpuNodeTags = parallelClusterInstance.CpuNodeTags
+	}
+
+	if parallelClusterInstance.GpuNodeTags != "" {
+		merged.GpuNodeTags = parallelClusterInstance.GpuNodeTags
+	}
+
 	return merged
 }
 
@@ -913,6 +935,33 @@ func buildVolumeConfig(size, iops, throughput int, volumeType string) map[string
 	return config
 }
 
+// getGroupByIndex 按 ; 分隔取第 i 段，越界时复用最后一段，空字符串返回空
+func getGroupByIndex(s string, i int) string {
+	if s == "" {
+		return ""
+	}
+	parts := strings.Split(s, ";")
+	if i < len(parts) {
+		return strings.TrimSpace(parts[i])
+	}
+	return strings.TrimSpace(parts[len(parts)-1])
+}
+
+// parseTagsToList 将扁平字符串 "Key1=Value1,Key2=Value2" 转换为 PCluster Tags 列表格式
+func parseTagsToList(tagsStr string) []map[string]interface{} {
+	tags := []map[string]interface{}{}
+	for _, kv := range strings.Split(tagsStr, ",") {
+		parts := strings.SplitN(strings.TrimSpace(kv), "=", 2)
+		if len(parts) == 2 && parts[0] != "" {
+			tags = append(tags, map[string]interface{}{
+				"Key":   parts[0],
+				"Value": parts[1],
+			})
+		}
+	}
+	return tags
+}
+
 // 辅助函数
 func getValueOrDefault(value, defaultValue int) int {
 	if value > 0 {
@@ -1056,316 +1105,265 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		return nil
 	}
 
-	// 为 CPU 队列选择子网
+	// 构建 CPU 网络配置（所有 CPU 队列共享）
 	var cpuSubnetIds []string
 	if types.GetBoolValue(pcInstance.PlacementGroupEnabled, false) {
-		// 如果启用了放置组，只使用指定的可用区
 		azIndex := pcInstance.AzIndex
 		if pcInstance.PgAzIndex > 0 {
 			azIndex = pcInstance.PgAzIndex
 		}
-		
-		// 使用统一的子网选择函数
 		subnetId := aws.SelectSubnetIdByAzIndex(azIndex, ctx.VPC, awsec2.SubnetType_PRIVATE_WITH_EGRESS)
 		cpuSubnetIds = []string{subnetId}
 	} else {
-		// 如果没有启用放置组，使用所有子网
 		cpuSubnetIds = computeNodeSubnetIds
 	}
 
-	// 创建 CPU 队列的网络配置
 	cpuNetworkingConfig := map[string]interface{}{
 		"SubnetIds":      cpuSubnetIds,
 		"SecurityGroups": []string{*computeNodeSg.SecurityGroupId()},
 	}
-	
-	// 为 CPU 队列添加放置组配置（如果启用）
 	if types.GetBoolValue(pcInstance.PlacementGroupEnabled, false) {
-		placementGroup := map[string]interface{}{
-			"Enabled": true,
-		}
-		
-		// 如果指定了放置组 ID，则使用它
+		placementGroup := map[string]interface{}{"Enabled": true}
 		if pcInstance.PlacementGroupId != "" {
 			placementGroup["Id"] = pcInstance.PlacementGroupId
 		}
-		
 		cpuNetworkingConfig["PlacementGroup"] = placementGroup
 	}
-	
-	// 创建 CPU 计算资源配置
-	cpuComputeResources := createComputeResources(
-		pcInstance.ComputeNodeType,
-		pcInstance.MinSize,
-		pcInstance.MaxSize,
-		pcInstance.DisableSimultaneousMultithreading,
-		"cpu",
-	)
-	
-	// 为 CPU 队列添加 EFA 配置（如果启用）
-	if types.GetBoolValue(pcInstance.EnableEfa, false) {
-		for i := range cpuComputeResources {
-			cpuComputeResources[i]["Efa"] = map[string]interface{}{
-				"Enabled": true,
+
+	// 按 ; 分组，每组生成一对 cpu / cpu-spot 队列
+	queues := []map[string]interface{}{}
+	cpuGroups := strings.Split(pcInstance.ComputeNodeType, ";")
+
+	for idx, instanceTypeGroup := range cpuGroups {
+		instanceTypeGroup = strings.TrimSpace(instanceTypeGroup)
+
+		// 队列命名：第 0 组保持 cpu / cpu-spot，后续为 cpu-1 / cpu-1-spot
+		queueName := "cpu"
+		spotQueueName := "cpu-spot"
+		if idx > 0 {
+			queueName = fmt.Sprintf("cpu-%d", idx)
+			spotQueueName = fmt.Sprintf("cpu-%d-spot", idx)
+		}
+
+		// 按 ; 取对应组的 tags（越界则为空）
+		groupTags := getGroupByIndex(pcInstance.CpuNodeTags, idx)
+
+		// 按需队列
+		cpuComputeResources := createComputeResources(
+			instanceTypeGroup,
+			pcInstance.MinSize,
+			pcInstance.MaxSize,
+			pcInstance.DisableSimultaneousMultithreading,
+			"cpu",
+		)
+		if types.GetBoolValue(pcInstance.EnableEfa, false) {
+			for i := range cpuComputeResources {
+				cpuComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
 			}
 		}
-	}
-	
-	// 创建 CPU 按需队列
-	cpuQueue := map[string]interface{}{
-		"Name": "cpu",
-		"ComputeResources": cpuComputeResources,
-		"Networking": cpuNetworkingConfig,
-	}
-	
-	// 添加 ComputeSettings 配置
-	if computeSettings := createComputeSettings("cpu"); computeSettings != nil {
-		cpuQueue["ComputeSettings"] = computeSettings
-	}
-	
-	// 添加计算节点的 CustomActions 配置
-	if pcInstance.UserDataToken != "" {
-		cpuQueue["CustomActions"] = map[string]interface{}{
-			"OnNodeConfigured": map[string]interface{}{
-				"Script": getOnNodeConfiguredScriptPath(pcInstance),
-				"Args": []string{pcInstance.UserDataToken},
-			},
+		cpuQueue := map[string]interface{}{
+			"Name":             queueName,
+			"ComputeResources": cpuComputeResources,
+			"Networking":       cpuNetworkingConfig,
 		}
-	}
-	
-	// 设置分配策略
-	if pcInstance.AllocationStrategy != "" {
-		cpuQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
-	}
-	
-	// 添加自定义 AMI 配置（如果指定了计算节点自定义 AMI）
-	if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
-		cpuQueue["Image"] = map[string]interface{}{
-			"CustomAmi": computeAmi,
+		if computeSettings := createComputeSettings("cpu"); computeSettings != nil {
+			cpuQueue["ComputeSettings"] = computeSettings
 		}
-	}
-	
-	queues := []map[string]interface{}{cpuQueue}
-
-	// 创建 CPU Spot 计算资源配置
-	cpuSpotComputeResources := createComputeResources(
-		pcInstance.ComputeNodeType,
-		0,
-		pcInstance.MaxSize,
-		pcInstance.DisableSimultaneousMultithreading,
-		"cpu-spot",
-	)
-	
-	// 为 CPU Spot 队列添加 EFA 配置（如果启用）
-	if types.GetBoolValue(pcInstance.EnableEfa, false) {
-		for i := range cpuSpotComputeResources {
-			cpuSpotComputeResources[i]["Efa"] = map[string]interface{}{
-				"Enabled": true,
+		if pcInstance.UserDataToken != "" {
+			cpuQueue["CustomActions"] = map[string]interface{}{
+				"OnNodeConfigured": map[string]interface{}{
+					"Script": getOnNodeConfiguredScriptPath(pcInstance),
+					"Args":   []string{pcInstance.UserDataToken},
+				},
 			}
 		}
-	}
-	
-	// 创建 CPU Spot 队列
-	cpuSpotQueue := map[string]interface{}{
-		"Name": "cpu-spot",
-		"ComputeResources": cpuSpotComputeResources,
-		"Networking": cpuNetworkingConfig, // 使用与 CPU 队列相同的网络配置
-		"CapacityType": "SPOT",
-	}
-	
-	// 添加 ComputeSettings 配置
-	if computeSettings := createComputeSettings("cpu-spot"); computeSettings != nil {
-		cpuSpotQueue["ComputeSettings"] = computeSettings
-	}
-	
-	// 添加计算节点的 CustomActions 配置
-	if pcInstance.UserDataToken != "" {
-		cpuSpotQueue["CustomActions"] = map[string]interface{}{
-			"OnNodeConfigured": map[string]interface{}{
-				"Script": getOnNodeConfiguredScriptPath(pcInstance),
-				"Args": []string{pcInstance.UserDataToken},
-			},
+		if pcInstance.AllocationStrategy != "" {
+			cpuQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
 		}
-	}
-	
-	// 为 Spot 队列设置专门的分配策略
-	if pcInstance.SpotAllocationStrategy != "" {
-		cpuSpotQueue["AllocationStrategy"] = pcInstance.SpotAllocationStrategy
-	} else if pcInstance.AllocationStrategy != "" {
-		// 如果没有指定Spot专用策略，则使用通用策略
-		cpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
-	}
-	
-	// 添加自定义 AMI 配置（如果指定了计算节点自定义 AMI）
-	if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
-		cpuSpotQueue["Image"] = map[string]interface{}{
-			"CustomAmi": computeAmi,
+		if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+			cpuQueue["Image"] = map[string]interface{}{"CustomAmi": computeAmi}
 		}
-	}
-	
-	queues = append(queues, cpuSpotQueue)
+		if groupTags != "" {
+			cpuQueue["Tags"] = parseTagsToList(groupTags)
+		}
+		queues = append(queues, cpuQueue)
 
-	// 如果启用了GPU队列，添加GPU队列配置
+		// Spot 队列
+		cpuSpotComputeResources := createComputeResources(
+			instanceTypeGroup,
+			0,
+			pcInstance.MaxSize,
+			pcInstance.DisableSimultaneousMultithreading,
+			"cpu-spot",
+		)
+		if types.GetBoolValue(pcInstance.EnableEfa, false) {
+			for i := range cpuSpotComputeResources {
+				cpuSpotComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
+			}
+		}
+		cpuSpotQueue := map[string]interface{}{
+			"Name":             spotQueueName,
+			"ComputeResources": cpuSpotComputeResources,
+			"Networking":       cpuNetworkingConfig,
+			"CapacityType":     "SPOT",
+		}
+		if computeSettings := createComputeSettings("cpu-spot"); computeSettings != nil {
+			cpuSpotQueue["ComputeSettings"] = computeSettings
+		}
+		if pcInstance.UserDataToken != "" {
+			cpuSpotQueue["CustomActions"] = map[string]interface{}{
+				"OnNodeConfigured": map[string]interface{}{
+					"Script": getOnNodeConfiguredScriptPath(pcInstance),
+					"Args":   []string{pcInstance.UserDataToken},
+				},
+			}
+		}
+		if pcInstance.SpotAllocationStrategy != "" {
+			cpuSpotQueue["AllocationStrategy"] = pcInstance.SpotAllocationStrategy
+		} else if pcInstance.AllocationStrategy != "" {
+			cpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
+		}
+		if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+			cpuSpotQueue["Image"] = map[string]interface{}{"CustomAmi": computeAmi}
+		}
+		if groupTags != "" {
+			cpuSpotQueue["Tags"] = parseTagsToList(groupTags)
+		}
+		queues = append(queues, cpuSpotQueue)
+	}
+
+	// 如果启用了 GPU 队列，按 ; 分组生成多对 gpu / gpu-spot 队列
 	if types.GetBoolValue(pcInstance.EnableGpuQueue, false) {
-		// 设置默认值
-		gpuInstanceType := "g4dn.xlarge" // 默认GPU实例类型
-		if pcInstance.GpuInstanceType != "" {
-			gpuInstanceType = pcInstance.GpuInstanceType
+		gpuInstanceTypeStr := pcInstance.GpuInstanceType
+		if gpuInstanceTypeStr == "" {
+			gpuInstanceTypeStr = "g4dn.xlarge"
 		}
 
-		gpuMinSize := 0 // 默认最小节点数
-		if pcInstance.GpuMinSize > 0 {
-			gpuMinSize = pcInstance.GpuMinSize
+		gpuMinSize := pcInstance.GpuMinSize
+		gpuMaxSize := pcInstance.GpuMaxSize
+		if gpuMaxSize == 0 {
+			gpuMaxSize = 4
 		}
 
-		gpuMaxSize := 4 // 默认最大节点数
-		if pcInstance.GpuMaxSize > 0 {
-			gpuMaxSize = pcInstance.GpuMaxSize
-		}
-
-		// 为 GPU 队列选择子网
+		// 构建 GPU 网络配置（所有 GPU 队列共享）
 		var gpuSubnetIds []string
 		if types.GetBoolValue(pcInstance.GpuPlacementGroupEnabled, false) {
-			// 如果启用了放置组，只使用指定的可用区
 			azIndex := pcInstance.AzIndex
 			if pcInstance.GpuPgAzIndex > 0 {
 				azIndex = pcInstance.GpuPgAzIndex
 			}
-			
-			// 使用统一的子网选择函数
 			subnetId := aws.SelectSubnetIdByAzIndex(azIndex, ctx.VPC, awsec2.SubnetType_PRIVATE_WITH_EGRESS)
 			gpuSubnetIds = []string{subnetId}
 		} else {
-			// 如果没有启用放置组，使用所有子网
 			gpuSubnetIds = computeNodeSubnetIds
 		}
 
-		// 创建 GPU 队列的网络配置
 		gpuNetworkingConfig := map[string]interface{}{
 			"SubnetIds":      gpuSubnetIds,
 			"SecurityGroups": []string{*computeNodeSg.SecurityGroupId()},
 		}
-		
-		// 为 GPU 队列添加放置组配置（如果启用）
 		if types.GetBoolValue(pcInstance.GpuPlacementGroupEnabled, false) {
-			gpuPlacementGroup := map[string]interface{}{
-				"Enabled": true,
-			}
-			
-			gpuNetworkingConfig["PlacementGroup"] = gpuPlacementGroup
+			gpuNetworkingConfig["PlacementGroup"] = map[string]interface{}{"Enabled": true}
 		}
 
-		// 创建 GPU 计算资源配置
-		gpuComputeResources := createComputeResources(
-			gpuInstanceType,
-			gpuMinSize,
-			gpuMaxSize,
-			pcInstance.DisableSimultaneousMultithreading,
-			"gpu",
-		)
-		
-		// 为 GPU 队列添加 EFA 配置（如果启用）
-		if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
-			for i := range gpuComputeResources {
-				gpuComputeResources[i]["Efa"] = map[string]interface{}{
-					"Enabled": true,
+		// 按 ; 分组
+		gpuGroups := strings.Split(gpuInstanceTypeStr, ";")
+
+		for idx, instanceTypeGroup := range gpuGroups {
+			instanceTypeGroup = strings.TrimSpace(instanceTypeGroup)
+
+			queueName := "gpu"
+			spotQueueName := "gpu-spot"
+			if idx > 0 {
+				queueName = fmt.Sprintf("gpu-%d", idx)
+				spotQueueName = fmt.Sprintf("gpu-%d-spot", idx)
+			}
+
+			groupTags := getGroupByIndex(pcInstance.GpuNodeTags, idx)
+
+			// 按需队列
+			gpuComputeResources := createComputeResources(
+				instanceTypeGroup,
+				gpuMinSize,
+				gpuMaxSize,
+				pcInstance.DisableSimultaneousMultithreading,
+				"gpu",
+			)
+			if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
+				for i := range gpuComputeResources {
+					gpuComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
 				}
 			}
-		}
-
-		// 添加 GPU 按需队列
-		gpuQueue := map[string]interface{}{
-			"Name": "gpu",
-			"ComputeResources": gpuComputeResources,
-			"Networking": gpuNetworkingConfig,
-		}
-		
-		// 添加 ComputeSettings 配置
-		if computeSettings := createComputeSettings("gpu"); computeSettings != nil {
-			gpuQueue["ComputeSettings"] = computeSettings
-		}
-		
-		// 添加计算节点的 CustomActions 配置
-		if pcInstance.UserDataToken != "" {
-			gpuQueue["CustomActions"] = map[string]interface{}{
-				"OnNodeConfigured": map[string]interface{}{
-					"Script": getOnNodeConfiguredScriptPath(pcInstance),
-					"Args": []string{pcInstance.UserDataToken},
-				},
+			gpuQueue := map[string]interface{}{
+				"Name":             queueName,
+				"ComputeResources": gpuComputeResources,
+				"Networking":       gpuNetworkingConfig,
 			}
-		}
-		
-		// 设置分配策略
-		if pcInstance.AllocationStrategy != "" {
-			gpuQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
-		}
-		
-		// 添加自定义 AMI 配置（如果指定了计算节点自定义 AMI）
-		if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
-			gpuQueue["Image"] = map[string]interface{}{
-				"CustomAmi": computeAmi,
+			if computeSettings := createComputeSettings("gpu"); computeSettings != nil {
+				gpuQueue["ComputeSettings"] = computeSettings
 			}
-		}
-
-		queues = append(queues, gpuQueue)
-		
-		// 创建 GPU Spot 计算资源配置
-		gpuSpotComputeResources := createComputeResources(
-			gpuInstanceType,
-			0,
-			gpuMaxSize,
-			pcInstance.DisableSimultaneousMultithreading,
-			"gpu-spot",
-		)
-		
-		// 为 GPU Spot 队列添加 EFA 配置（如果启用）
-		if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
-			for i := range gpuSpotComputeResources {
-				gpuSpotComputeResources[i]["Efa"] = map[string]interface{}{
-					"Enabled": true,
+			if pcInstance.UserDataToken != "" {
+				gpuQueue["CustomActions"] = map[string]interface{}{
+					"OnNodeConfigured": map[string]interface{}{
+						"Script": getOnNodeConfiguredScriptPath(pcInstance),
+						"Args":   []string{pcInstance.UserDataToken},
+					},
 				}
 			}
-		}
-		
-		// 添加 GPU Spot 队列
-		gpuSpotQueue := map[string]interface{}{
-			"Name": "gpu-spot",
-			"ComputeResources": gpuSpotComputeResources,
-			"Networking": gpuNetworkingConfig, // 使用与 GPU 队列相同的网络配置
-			"CapacityType": "SPOT",
-		}
-		
-		// 添加 ComputeSettings 配置
-		if computeSettings := createComputeSettings("gpu-spot"); computeSettings != nil {
-			gpuSpotQueue["ComputeSettings"] = computeSettings
-		}
-		
-		// 添加计算节点的 CustomActions 配置
-		if pcInstance.UserDataToken != "" {
-			gpuSpotQueue["CustomActions"] = map[string]interface{}{
-				"OnNodeConfigured": map[string]interface{}{
-					"Script": getOnNodeConfiguredScriptPath(pcInstance),
-					"Args": []string{pcInstance.UserDataToken},
-				},
+			if pcInstance.AllocationStrategy != "" {
+				gpuQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
 			}
-		}
-		
-		// 为 GPU Spot 队列设置专门的分配策略
-		if pcInstance.SpotAllocationStrategy != "" {
-			gpuSpotQueue["AllocationStrategy"] = pcInstance.SpotAllocationStrategy
-		} else if pcInstance.AllocationStrategy != "" {
-			// 如果没有指定Spot专用策略，则使用通用策略
-			gpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
-		}
-		
-		// 添加自定义 AMI 配置（如果指定了计算节点自定义 AMI）
-		if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
-			gpuSpotQueue["Image"] = map[string]interface{}{
-				"CustomAmi": computeAmi,
+			if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+				gpuQueue["Image"] = map[string]interface{}{"CustomAmi": computeAmi}
 			}
+			if groupTags != "" {
+				gpuQueue["Tags"] = parseTagsToList(groupTags)
+			}
+			queues = append(queues, gpuQueue)
+
+			// Spot 队列
+			gpuSpotComputeResources := createComputeResources(
+				instanceTypeGroup,
+				0,
+				gpuMaxSize,
+				pcInstance.DisableSimultaneousMultithreading,
+				"gpu-spot",
+			)
+			if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
+				for i := range gpuSpotComputeResources {
+					gpuSpotComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
+				}
+			}
+			gpuSpotQueue := map[string]interface{}{
+				"Name":             spotQueueName,
+				"ComputeResources": gpuSpotComputeResources,
+				"Networking":       gpuNetworkingConfig,
+				"CapacityType":     "SPOT",
+			}
+			if computeSettings := createComputeSettings("gpu-spot"); computeSettings != nil {
+				gpuSpotQueue["ComputeSettings"] = computeSettings
+			}
+			if pcInstance.UserDataToken != "" {
+				gpuSpotQueue["CustomActions"] = map[string]interface{}{
+					"OnNodeConfigured": map[string]interface{}{
+						"Script": getOnNodeConfiguredScriptPath(pcInstance),
+						"Args":   []string{pcInstance.UserDataToken},
+					},
+				}
+			}
+			if pcInstance.SpotAllocationStrategy != "" {
+				gpuSpotQueue["AllocationStrategy"] = pcInstance.SpotAllocationStrategy
+			} else if pcInstance.AllocationStrategy != "" {
+				gpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
+			}
+			if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+				gpuSpotQueue["Image"] = map[string]interface{}{"CustomAmi": computeAmi}
+			}
+			if groupTags != "" {
+				gpuSpotQueue["Tags"] = parseTagsToList(groupTags)
+			}
+			queues = append(queues, gpuSpotQueue)
 		}
-		
-		queues = append(queues, gpuSpotQueue)
 	}
 
 	return queues

@@ -48,13 +48,27 @@ forges:
       userDataToken: sysinfo
     instances:
       - id: openclaw
+        security: private
+        subnet: private
         instanceType: c7g.xlarge
+        instanceCount: 1
         ebsSize: "200"
         osName: ubuntu
         osVersion: "24.04"
-        security: private
-        subnet: private
-        allowedPorts: 22,18789@10.69.0.0/16;80,443,8443@10.69.0.0/16
+        allowedPorts: 22,18789@0.0.0.0/0;80,443,8443@10.69.0.0/16
         allowedPortsIpv6: 22,80,443,8443,18789@::/0
         policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonBedrockFullAccess
-        userDataToken: openclaw-nonroot:model=us.anthropic.claude-sonnet-4-5-20250929-v1:0;region=us-west-2
+        userDataToken: openclaw-nonroot:model=global.anthropic.claude-sonnet-4-6;region=us-west-2;plugins=feishu,slack,telegram
+      - id: openclawx86
+        security: private
+        subnet: private
+        instanceType: c7g.xlarge
+        instanceCount: 1
+        osArch: x86_64
+        ebsSize: "200"
+        osName: ubuntu
+        osVersion: "24.04"
+        allowedPorts: 22,18789@0.0.0.0/0;80,443,8443@10.69.0.0/16
+        allowedPortsIpv6: 22,80,443,8443,18789@::/0
+        policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonBedrockFullAccess
+        userDataToken: openclaw-nonroot:model=global.anthropic.claude-sonnet-4-6;region=us-west-2;plugins=feishu,slack,telegram
