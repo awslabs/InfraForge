@@ -220,10 +220,11 @@ func (f *ParallelClusterForge) Create(ctx *interfaces.ForgeContext) interface{} 
 	// AdditionalIamPolicies are attached to the Lambda role (not HeadNode) to allow:
 	// - AmazonSSMManagedInstanceCore: Required for ParallelCluster operations
 	// - IAMFullAccess: Required to attach/detach IAM policies to HeadNode role
+	// - AmazonEC2FullAccess: Required to tag EC2 instances/volumes when cluster Tags are specified
 	providerResource := awscdk.NewCfnStack(providerStack, jsii.String(fmt.Sprintf("%s-provider-resource", pcInstance.ID)), &awscdk.CfnStackProps{
 		TemplateUrl: jsii.String(templateUrl),
 		Parameters: &map[string]*string{
-			"AdditionalIamPolicies": jsii.String(fmt.Sprintf("arn:%s:iam::aws:policy/AmazonSSMManagedInstanceCore,arn:%s:iam::aws:policy/IAMFullAccess", partition.DefaultPartition, partition.DefaultPartition)),
+			"AdditionalIamPolicies": jsii.String(fmt.Sprintf("arn:%s:iam::aws:policy/AmazonSSMManagedInstanceCore,arn:%s:iam::aws:policy/IAMFullAccess,arn:%s:iam::aws:policy/AmazonEC2FullAccess", partition.DefaultPartition, partition.DefaultPartition, partition.DefaultPartition)),
 		},
 	})
 
