@@ -74,6 +74,10 @@ type ParallelClusterInstanceConfig struct {
 	PlacementGroupId      string `json:"placementGroupId,omitempty"`
 	PgAzIndex            int    `json:"pgAzIndex,omitempty"`
 
+	// Spot queue configuration
+	DisableCpuSpotQueue *bool  `json:"disableCpuSpotQueue,omitempty"`
+	DisableGpuSpotQueue *bool  `json:"disableGpuSpotQueue,omitempty"`
+
 	// GPU queue configuration
 	EnableGpuQueue     *bool  `json:"enableGpuQueue,omitempty"`
 	GpuInstanceType    string `json:"gpuInstanceType,omitempty"`
@@ -626,6 +630,14 @@ func (f *ParallelClusterForge) MergeConfigs(defaults config.InstanceConfig, inst
 
 	if parallelClusterInstance.ComputeNodeBootstrapTimeout > 1200 {
 		merged.ComputeNodeBootstrapTimeout = parallelClusterInstance.ComputeNodeBootstrapTimeout
+	}
+
+	if parallelClusterInstance.DisableCpuSpotQueue != nil {
+		merged.DisableCpuSpotQueue = parallelClusterInstance.DisableCpuSpotQueue
+	}
+
+	if parallelClusterInstance.DisableGpuSpotQueue != nil {
+		merged.DisableGpuSpotQueue = parallelClusterInstance.DisableGpuSpotQueue
 	}
 
 	if parallelClusterInstance.EnableGpuQueue != nil {
@@ -1189,48 +1201,50 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		}
 		queues = append(queues, cpuQueue)
 
-		// Spot 队列
-		cpuSpotComputeResources := createComputeResources(
-			instanceTypeGroup,
-			0,
-			pcInstance.MaxSize,
-			pcInstance.DisableSimultaneousMultithreading,
-			"cpu-spot",
-		)
-		if types.GetBoolValue(pcInstance.EnableEfa, false) {
-			for i := range cpuSpotComputeResources {
-				cpuSpotComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
+		// Spot 队列（可通过 disableCpuSpotQueue 禁用，适用于不支持 spot 的实例如 hpc8a）
+		if !types.GetBoolValue(pcInstance.DisableCpuSpotQueue, false) {
+			cpuSpotComputeResources := createComputeResources(
+				instanceTypeGroup,
+				0,
+				pcInstance.MaxSize,
+				pcInstance.DisableSimultaneousMultithreading,
+				"cpu-spot",
+			)
+			if types.GetBoolValue(pcInstance.EnableEfa, false) {
+				for i := range cpuSpotComputeResources {
+					cpuSpotComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
+				}
 			}
-		}
-		cpuSpotQueue := map[string]interface{}{
-			"Name":             spotQueueName,
-			"ComputeResources": cpuSpotComputeResources,
-			"Networking":       cpuNetworkingConfig,
-			"CapacityType":     "SPOT",
-		}
-		if computeSettings := createComputeSettings("cpu-spot"); computeSettings != nil {
-			cpuSpotQueue["ComputeSettings"] = computeSettings
-		}
-		if pcInstance.UserDataToken != "" {
-			cpuSpotQueue["CustomActions"] = map[string]interface{}{
-				"OnNodeConfigured": map[string]interface{}{
-					"Script": getOnNodeConfiguredScriptPath(pcInstance),
-					"Args":   []string{pcInstance.UserDataToken},
-				},
+			cpuSpotQueue := map[string]interface{}{
+				"Name":             spotQueueName,
+				"ComputeResources": cpuSpotComputeResources,
+				"Networking":       cpuNetworkingConfig,
+				"CapacityType":     "SPOT",
 			}
+			if computeSettings := createComputeSettings("cpu-spot"); computeSettings != nil {
+				cpuSpotQueue["ComputeSettings"] = computeSettings
+			}
+			if pcInstance.UserDataToken != "" {
+				cpuSpotQueue["CustomActions"] = map[string]interface{}{
+					"OnNodeConfigured": map[string]interface{}{
+						"Script": getOnNodeConfiguredScriptPath(pcInstance),
+						"Args":   []string{pcInstance.UserDataToken},
+					},
+				}
+			}
+			if pcInstance.SpotAllocationStrategy != "" {
+				cpuSpotQueue["AllocationStrategy"] = pcInstance.SpotAllocationStrategy
+			} else if pcInstance.AllocationStrategy != "" {
+				cpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
+			}
+			if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+				cpuSpotQueue["Image"] = map[string]interface{}{"CustomAmi": computeAmi}
+			}
+			if groupTags != "" {
+				cpuSpotQueue["Tags"] = parseTagsToList(groupTags)
+			}
+			queues = append(queues, cpuSpotQueue)
 		}
-		if pcInstance.SpotAllocationStrategy != "" {
-			cpuSpotQueue["AllocationStrategy"] = pcInstance.SpotAllocationStrategy
-		} else if pcInstance.AllocationStrategy != "" {
-			cpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
-		}
-		if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
-			cpuSpotQueue["Image"] = map[string]interface{}{"CustomAmi": computeAmi}
-		}
-		if groupTags != "" {
-			cpuSpotQueue["Tags"] = parseTagsToList(groupTags)
-		}
-		queues = append(queues, cpuSpotQueue)
 	}
 
 	// 如果启用了 GPU 队列，按 ; 分组生成多对 gpu / gpu-spot 队列
@@ -1322,48 +1336,50 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			}
 			queues = append(queues, gpuQueue)
 
-			// Spot 队列
-			gpuSpotComputeResources := createComputeResources(
-				instanceTypeGroup,
-				0,
-				gpuMaxSize,
-				pcInstance.DisableSimultaneousMultithreading,
-				"gpu-spot",
-			)
-			if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
-				for i := range gpuSpotComputeResources {
-					gpuSpotComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
+			// Spot 队列（可通过 disableGpuSpotQueue 禁用，适用于不支持 spot 的实例）
+			if !types.GetBoolValue(pcInstance.DisableGpuSpotQueue, false) {
+				gpuSpotComputeResources := createComputeResources(
+					instanceTypeGroup,
+					0,
+					gpuMaxSize,
+					pcInstance.DisableSimultaneousMultithreading,
+					"gpu-spot",
+				)
+				if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
+					for i := range gpuSpotComputeResources {
+						gpuSpotComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
+					}
 				}
-			}
-			gpuSpotQueue := map[string]interface{}{
-				"Name":             spotQueueName,
-				"ComputeResources": gpuSpotComputeResources,
-				"Networking":       gpuNetworkingConfig,
-				"CapacityType":     "SPOT",
-			}
-			if computeSettings := createComputeSettings("gpu-spot"); computeSettings != nil {
-				gpuSpotQueue["ComputeSettings"] = computeSettings
-			}
-			if pcInstance.UserDataToken != "" {
-				gpuSpotQueue["CustomActions"] = map[string]interface{}{
-					"OnNodeConfigured": map[string]interface{}{
-						"Script": getOnNodeConfiguredScriptPath(pcInstance),
-						"Args":   []string{pcInstance.UserDataToken},
-					},
+				gpuSpotQueue := map[string]interface{}{
+					"Name":             spotQueueName,
+					"ComputeResources": gpuSpotComputeResources,
+					"Networking":       gpuNetworkingConfig,
+					"CapacityType":     "SPOT",
 				}
+				if computeSettings := createComputeSettings("gpu-spot"); computeSettings != nil {
+					gpuSpotQueue["ComputeSettings"] = computeSettings
+				}
+				if pcInstance.UserDataToken != "" {
+					gpuSpotQueue["CustomActions"] = map[string]interface{}{
+						"OnNodeConfigured": map[string]interface{}{
+							"Script": getOnNodeConfiguredScriptPath(pcInstance),
+							"Args":   []string{pcInstance.UserDataToken},
+						},
+					}
+				}
+				if pcInstance.SpotAllocationStrategy != "" {
+					gpuSpotQueue["AllocationStrategy"] = pcInstance.SpotAllocationStrategy
+				} else if pcInstance.AllocationStrategy != "" {
+					gpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
+				}
+				if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
+					gpuSpotQueue["Image"] = map[string]interface{}{"CustomAmi": computeAmi}
+				}
+				if groupTags != "" {
+					gpuSpotQueue["Tags"] = parseTagsToList(groupTags)
+				}
+				queues = append(queues, gpuSpotQueue)
 			}
-			if pcInstance.SpotAllocationStrategy != "" {
-				gpuSpotQueue["AllocationStrategy"] = pcInstance.SpotAllocationStrategy
-			} else if pcInstance.AllocationStrategy != "" {
-				gpuSpotQueue["AllocationStrategy"] = pcInstance.AllocationStrategy
-			}
-			if computeAmi := getComputeCustomAmi(pcInstance); computeAmi != "" {
-				gpuSpotQueue["Image"] = map[string]interface{}{"CustomAmi": computeAmi}
-			}
-			if groupTags != "" {
-				gpuSpotQueue["Tags"] = parseTagsToList(groupTags)
-			}
-			queues = append(queues, gpuSpotQueue)
 		}
 	}
 

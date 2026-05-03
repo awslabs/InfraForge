@@ -149,6 +149,8 @@
                 "computeNodeType": "t3.micro",
                 "diskSize": 50,
                 "cpuNodeDiskSize": 100,
+                "disableCpuSpotQueue": false,
+                "disableGpuSpotQueue": false,
                 "gpuNodeDiskSize": 200,
                 "headNodeType": "t3.medium",
                 "enableDcv": true,
