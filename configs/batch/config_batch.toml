@@ -1,4 +1,4 @@
-enabledForges = ["efs", "fsx", "batch"]
+enabledForges = ["efs", "fsx", "batch-singlenode"]
 
 [global]
 stackName = "aws-infra-forge"
@@ -31,49 +31,70 @@ deploymentType = "scratch2"
 fileSystemVersion = "2.15"
 storageType = "ssd"
 perUnitStorageThroughput = 250
-removalPolicy = "destory"
+removalPolicy = "destroy"
 storageCapacityGiB = 1200
 
 [[forges.lustre.instances]]
 id = "fsx"
 [forges.batch]
 [forges.batch.defaults]
-type = "LUSTRE"
+type = "BATCH"
 security = "private"
 subnet = "private"
-azIndex = 0
+maxvCpus = "1000"
+minvCpus = "0"
+azIndex = "0"
 instanceTypes = "m5.large,c5.xlarge"
+allocationStrategy = "BEST_FIT_PROGRESSIVE"
+spotBidPercentage = "50"
+queuePriorities = "10"
+vcpus = "2"
+memory = "2048"
+containerImage = "amazonlinux:latest"
+retryAttempts = 2
 instanceRolePolicies = "service-role/AmazonEC2ContainerServiceforEC2Role,AmazonS3FullAccess,AmazonSSMManagedInstanceCore,CloudWatchAgentServerPolicy"
-serviceRolePolicies = "service-role/AWSBatchServiceRole"
 jobRolePolicies = "AmazonS3ReadOnlyAccess,CloudWatchLogsFullAccess"
 useOptimalInstanceTypes = false
 updateToLatestImageVersion = false
-maxvCpus = 1000
-minvCpus = 0
-desiredvCpus = 100
-allocationStrategy = "BEST_FIT_PROGRESSIVE"
-spotBidPercentage = 50
-queuePriority = 10
-containerImage = "amazonlinux:latest"
-vcpus = 2
-memory = 2048
 userDataScriptPath = ""
 userDataToken = "nas"
 dependsOn = ""
 s3Location = "s3://aws-infra-forge"
 
 [[forges.batch.instances]]
-id = "batch"
+id = "batch-singlenode"
+ceNames = "cpu-pool,gpu-pool"
+instanceTypes = "c5.xlarge,c5.2xlarge,c5.4xlarge;g4dn.xlarge"
+maxvCpus = "1024,128"
+spotBidPercentage = "60,0"
+imageTypes = "ecs_al2023,ecs_al2_nvidia"
+placementGroupStrategy = "spread,cluster"
+queueNames = "cpu-queue,gpu-queue"
+queueCeRefs = "cpu-pool,gpu-pool"
+queuePriorities = "10,5"
+jobDefNames = "simulate,merge"
+vcpus = "1,1"
+memory = "2048,1024"
 dependsOn = "EFS:efs,LUSTRE:fsx"
+timeoutMinutes = "360,60"
 
 [[forges.batch.instances]]
 id = "batch-multinode"
-instanceTypes = "c5n.xlarge"
-maxvCpus = 200
+ceNames = "cpu-pool,gpu-pool"
+instanceTypes = "c5.xlarge,c5.2xlarge,c5.4xlarge;g4dn.xlarge"
+maxvCpus = "1024,128"
+spotBidPercentage = "0,0"
+imageTypes = "ecs_al2023,ecs_al2_nvidia"
+placementGroupStrategy = "spread,cluster"
+queueNames = "cpu-queue,gpu-queue"
+queueCeRefs = "cpu-pool,gpu-pool"
+queuePriorities = "10,5"
+jobDefNames = "simulate,merge"
 jobDefinitionType = "multinode"
-numNodes = 4
-mainNode = 0
+numNodes = "4,8"
+mainNode = "0,0"
 containerImage = "mpirun/openmpi:latest"
-vcpus = 4
-memory = 8192
+vcpus = "2,8"
+memory = "4096,8192"
 dependsOn = "LUSTRE:fsx"
+timeoutMinutes = "360,60"

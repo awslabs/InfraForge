@@ -228,7 +228,7 @@ func (f *ParallelClusterForge) Create(ctx *interfaces.ForgeContext) interface{} 
 	providerResource := awscdk.NewCfnStack(providerStack, jsii.String(fmt.Sprintf("%s-provider-resource", pcInstance.ID)), &awscdk.CfnStackProps{
 		TemplateUrl: jsii.String(templateUrl),
 		Parameters: &map[string]*string{
-			"AdditionalIamPolicies": jsii.String(fmt.Sprintf("arn:%s:iam::aws:policy/AmazonSSMManagedInstanceCore,arn:%s:iam::aws:policy/IAMFullAccess,arn:%s:iam::aws:policy/AmazonEC2FullAccess", partition.DefaultPartition, partition.DefaultPartition, partition.DefaultPartition)),
+			"AdditionalIamPolicies": jsii.String(fmt.Sprintf("arn:%s:iam::aws:policy/AmazonSSMManagedInstanceCore,arn:%s:iam::aws:policy/IAMFullAccess,arn:%s:iam::aws:policy/AmazonEC2FullAccess,arn:%s:iam::aws:policy/SecretsManagerReadWrite", partition.DefaultPartition, partition.DefaultPartition, partition.DefaultPartition, partition.DefaultPartition)),
 		},
 	})
 
