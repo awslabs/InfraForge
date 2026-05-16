@@ -81,7 +81,8 @@ type BatchInstanceConfig struct {
 	JobRolePolicies      string `json:"jobRolePolicies,omitempty"`
 
 	// Retry 配置
-	RetryAttempts int `json:"retryAttempts,omitempty"`
+	RetryAttempts        int    `json:"retryAttempts,omitempty"`
+	RetryOnExitCode      string `json:"retryOnExitCode,omitempty"` // "retry" 或 "exit"，非零退出码的行为（默认 retry）
 
 	// UserData 配置
 	UserDataToken      string `json:"userDataToken,omitempty"`
@@ -399,9 +400,13 @@ func (b *BatchForge) createContainerJobDefinition(inst *BatchInstanceConfig, ctx
 
 	if inst.RetryAttempts > 0 {
 		jobDefProps.RetryAttempts = jsii.Number(inst.RetryAttempts)
+		exitAction := awsbatch.Action_RETRY
+		if strings.ToLower(inst.RetryOnExitCode) == "exit" {
+			exitAction = awsbatch.Action_EXIT
+		}
 		jobDefProps.RetryStrategies = &[]awsbatch.RetryStrategy{
 			awsbatch.RetryStrategy_Of(awsbatch.Action_RETRY, awsbatch.Reason_SPOT_INSTANCE_RECLAIMED()),
-			awsbatch.RetryStrategy_Of(awsbatch.Action_EXIT, awsbatch.Reason_NON_ZERO_EXIT_CODE()),
+			awsbatch.RetryStrategy_Of(exitAction, awsbatch.Reason_NON_ZERO_EXIT_CODE()),
 		}
 	}
 
@@ -565,6 +570,9 @@ func (b *BatchForge) MergeConfigs(defaults, instance config.InstanceConfig) conf
 	}
 	if inst.RetryAttempts != 0 {
 		merged.RetryAttempts = inst.RetryAttempts
+	}
+	if inst.RetryOnExitCode != "" {
+		merged.RetryOnExitCode = inst.RetryOnExitCode
 	}
 	if inst.UserDataToken != "" {
 		merged.UserDataToken = inst.UserDataToken

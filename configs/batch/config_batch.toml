@@ -52,6 +52,7 @@ vcpus = "2"
 memory = "2048"
 containerImage = "amazonlinux:latest"
 retryAttempts = 2
+retryOnExitCode = "retry"
 instanceRolePolicies = "service-role/AmazonEC2ContainerServiceforEC2Role,AmazonS3FullAccess,AmazonSSMManagedInstanceCore,CloudWatchAgentServerPolicy"
 jobRolePolicies = "AmazonS3ReadOnlyAccess,CloudWatchLogsFullAccess"
 useOptimalInstanceTypes = false
