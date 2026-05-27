@@ -91,6 +91,7 @@ forges:
       capacityBlockId: ""
       enableEfa: false
       enaSrdEnabled: false
+      nestedVirtualization: false
       osArch: aarch64
       osName: amazon
       osType: linux
@@ -120,15 +121,15 @@ forges:
       diskSize: 50
       cpuNodeDiskSize: 100
       gpuNodeDiskSize: 200
-      disableCpuSpotQueue: false
-      disableGpuSpotQueue: false
+      disableCpuSpotQueue: "false"
+      disableGpuSpotQueue: "false"
       headNodeType: t3.medium
       enableDcv: true
       minSize: 0
       maxSize: 10
-      enableEfa: false
-      placementGroupEnabled: false
-      pgAzIndex: 1
+      enableEfa: "false"
+      placementGroupEnabled: "false"
+      pgAzIndex: "1"
       enableGpuQueue: false
       disableSimultaneousMultithreading: false
       scalingStrategy: all-or-nothing
@@ -136,9 +137,9 @@ forges:
       spotAllocationStrategy: price-capacity-optimized
       gpuMinSize: 0
       gpuMaxSize: 10
-      gpuEnableEfa: false
-      gpuPlacementGroupEnabled: false
-      gpuPgAzIndex: 1
+      gpuEnableEfa: "false"
+      gpuPlacementGroupEnabled: "false"
+      gpuPgAzIndex: "1"
       osType: alinux2023
       policies: AmazonS3FullAccess,AmazonSSMManagedInstanceCore
       allowedPorts: 22,8443@0.0.0.0/0
@@ -151,9 +152,12 @@ forges:
     instances:
       - id: parallelcluster
         clusterName: InfraForgePCluster
-        computeNodeType: c6i.4xlarge,m6i.4xlarge,r6i.4xlarge
+        computeNodeType: c6i.32xlarge,m6i.32xlarge,r6i.32xlarge;c8i.xlarge,m8i.xlarge,r8i.xlarge
         dependsOn: RDS:rds,DS:bingds,EFS:efs,LUSTRE:fsx
-        headNodeType: c6i.xlarge
+        enableEfa: true,false
+        placementGroupEnabled: true,false
+        pgAzIndex: 1,0
+        headNodeType: c6i.2xlarge
         userDataToken: none
         enableGpuQueue: true
         gpuInstanceType: g4dn.4xlarge,g5.4xlarge
@@ -162,9 +166,12 @@ forges:
         keyName: parallelcluster
       - id: gparallelcluster
         clusterName: GInfraForgePCluster
-        computeNodeType: c8g.4xlarge,m8g.4xlarge,r8g.4xlarge
+        computeNodeType: c8g.24xlarge,m8g.24xlarge,r8g.24xlarge;c8g.xlarge,m8g.xlarge,r8g.xlarge
         dependsOn: RDS:rds,DS:bingds,EFS:efs,LUSTRE:fsx
-        headNodeType: c7g.4xlarge
+        enableEfa: true,false
+        placementGroupEnabled: true,false
+        pgAzIndex: 1,0
+        headNodeType: c7g.2xlarge
         diskType: gp3
         diskSize: 50
         diskIops: 3000

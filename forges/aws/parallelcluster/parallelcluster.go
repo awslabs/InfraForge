@@ -11,6 +11,7 @@ import (
 	"github.com/awslabs/InfraForge/core/config"
 	"github.com/awslabs/InfraForge/core/interfaces"
 	"github.com/awslabs/InfraForge/core/security"
+	"github.com/awslabs/InfraForge/core/utils/list"
 	"github.com/awslabs/InfraForge/core/utils/types"
 	"github.com/awslabs/InfraForge/core/utils/aws"
 	"github.com/awslabs/InfraForge/core/partition"
@@ -63,20 +64,20 @@ type ParallelClusterInstanceConfig struct {
 	SpotAllocationStrategy            string `json:"spotAllocationStrategy,omitempty"`
 	ScalingStrategy                   string `json:"scalingStrategy,omitempty"`
 
-	// EFA configuration for CPU queue
-	EnableEfa          *bool  `json:"enableEfa,omitempty"`
-	
-	// Placement group configuration for CPU queue
-	PlacementGroupEnabled *bool  `json:"placementGroupEnabled,omitempty"`
-	
+	// EFA configuration for CPU queue (逗号分隔，按分组位置对应)
+	EnableEfa          string `json:"enableEfa,omitempty"`
+
+	// Placement group configuration for CPU queue (逗号分隔，按分组位置对应)
+	PlacementGroupEnabled string `json:"placementGroupEnabled,omitempty"`
+
 	// Database configuration for Slurm accounting (auto-enabled if RDS dependency exists)
 	DatabaseName          string `json:"databaseName,omitempty"`  // 数据库名称，需要手动指定
 	PlacementGroupId      string `json:"placementGroupId,omitempty"`
-	PgAzIndex            int    `json:"pgAzIndex,omitempty"`
+	PgAzIndex            string `json:"pgAzIndex,omitempty"` // 逗号分隔，按分组位置对应
 
-	// Spot queue configuration
-	DisableCpuSpotQueue *bool  `json:"disableCpuSpotQueue,omitempty"`
-	DisableGpuSpotQueue *bool  `json:"disableGpuSpotQueue,omitempty"`
+	// Spot queue configuration (逗号分隔，按分组位置对应)
+	DisableCpuSpotQueue string `json:"disableCpuSpotQueue,omitempty"`
+	DisableGpuSpotQueue string `json:"disableGpuSpotQueue,omitempty"`
 
 	// GPU queue configuration
 	EnableGpuQueue     *bool  `json:"enableGpuQueue,omitempty"`
@@ -84,12 +85,12 @@ type ParallelClusterInstanceConfig struct {
 	GpuMinSize         int    `json:"gpuMinSize,omitempty"`
 	GpuMaxSize         int    `json:"gpuMaxSize,omitempty"`
 	
-	// EFA configuration for GPU queue
-	GpuEnableEfa       *bool  `json:"gpuEnableEfa,omitempty"`
-	
-	// Placement group configuration for GPU queue
-	GpuPlacementGroupEnabled *bool  `json:"gpuPlacementGroupEnabled,omitempty"`
-	GpuPgAzIndex            int    `json:"gpuPgAzIndex,omitempty"`
+	// EFA configuration for GPU queue (逗号分隔，按分组位置对应)
+	GpuEnableEfa       string `json:"gpuEnableEfa,omitempty"`
+
+	// Placement group configuration for GPU queue (逗号分隔，按分组位置对应)
+	GpuPlacementGroupEnabled string `json:"gpuPlacementGroupEnabled,omitempty"`
+	GpuPgAzIndex            string `json:"gpuPgAzIndex,omitempty"`
 
 	// NICE DCV configuration
 	EnableDcv          *bool  `json:"enableDcv,omitempty"`
@@ -599,20 +600,20 @@ func (f *ParallelClusterForge) MergeConfigs(defaults config.InstanceConfig, inst
 	}
 
 	// 合并 EFA 配置 (CPU 队列)
-	if parallelClusterInstance.EnableEfa != nil {
+	if parallelClusterInstance.EnableEfa != "" {
 		merged.EnableEfa = parallelClusterInstance.EnableEfa
 	}
-	
+
 	// 合并 CPU 队列的放置组配置
-	if parallelClusterInstance.PlacementGroupEnabled != nil {
+	if parallelClusterInstance.PlacementGroupEnabled != "" {
 		merged.PlacementGroupEnabled = parallelClusterInstance.PlacementGroupEnabled
 	}
-	
+
 	if parallelClusterInstance.PlacementGroupId != "" {
 		merged.PlacementGroupId = parallelClusterInstance.PlacementGroupId
 	}
-	
-	if parallelClusterInstance.PgAzIndex != 0 {
+
+	if parallelClusterInstance.PgAzIndex != "" {
 		merged.PgAzIndex = parallelClusterInstance.PgAzIndex
 	}
 
@@ -632,11 +633,11 @@ func (f *ParallelClusterForge) MergeConfigs(defaults config.InstanceConfig, inst
 		merged.ComputeNodeBootstrapTimeout = parallelClusterInstance.ComputeNodeBootstrapTimeout
 	}
 
-	if parallelClusterInstance.DisableCpuSpotQueue != nil {
+	if parallelClusterInstance.DisableCpuSpotQueue != "" {
 		merged.DisableCpuSpotQueue = parallelClusterInstance.DisableCpuSpotQueue
 	}
 
-	if parallelClusterInstance.DisableGpuSpotQueue != nil {
+	if parallelClusterInstance.DisableGpuSpotQueue != "" {
 		merged.DisableGpuSpotQueue = parallelClusterInstance.DisableGpuSpotQueue
 	}
 
@@ -657,16 +658,16 @@ func (f *ParallelClusterForge) MergeConfigs(defaults config.InstanceConfig, inst
 	}
 	
 	// 合并 GPU 队列的 EFA 配置
-	if parallelClusterInstance.GpuEnableEfa != nil {
+	if parallelClusterInstance.GpuEnableEfa != "" {
 		merged.GpuEnableEfa = parallelClusterInstance.GpuEnableEfa
 	}
-	
+
 	// 合并 GPU 队列的放置组配置
-	if parallelClusterInstance.GpuPlacementGroupEnabled != nil {
+	if parallelClusterInstance.GpuPlacementGroupEnabled != "" {
 		merged.GpuPlacementGroupEnabled = parallelClusterInstance.GpuPlacementGroupEnabled
 	}
-	
-	if parallelClusterInstance.GpuPgAzIndex != 0 {
+
+	if parallelClusterInstance.GpuPgAzIndex != "" {
 		merged.GpuPgAzIndex = parallelClusterInstance.GpuPgAzIndex
 	}
 
@@ -948,17 +949,6 @@ func buildVolumeConfig(size, iops, throughput int, volumeType string) map[string
 	return config
 }
 
-// getGroupByIndex 按 ; 分隔取第 i 段，越界时复用最后一段，空字符串返回空
-func getGroupByIndex(s string, i int) string {
-	if s == "" {
-		return ""
-	}
-	parts := strings.Split(s, ";")
-	if i < len(parts) {
-		return strings.TrimSpace(parts[i])
-	}
-	return strings.TrimSpace(parts[len(parts)-1])
-}
 
 // parseTagsToList 将扁平字符串 "Key1=Value1,Key2=Value2" 转换为 PCluster Tags 列表格式
 func parseTagsToList(tagsStr string) []map[string]interface{} {
@@ -974,6 +964,7 @@ func parseTagsToList(tagsStr string) []map[string]interface{} {
 	}
 	return tags
 }
+
 
 // 辅助函数
 func getValueOrDefault(value, defaultValue int) int {
@@ -1118,30 +1109,6 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		return nil
 	}
 
-	// 构建 CPU 网络配置（所有 CPU 队列共享）
-	var cpuSubnetIds []string
-	if types.GetBoolValue(pcInstance.PlacementGroupEnabled, false) {
-		azIndex := pcInstance.AzIndex
-		if pcInstance.PgAzIndex > 0 {
-			azIndex = pcInstance.PgAzIndex
-		}
-		subnetId := aws.SelectSubnetIdByAzIndex(azIndex, ctx.VPC, awsec2.SubnetType_PRIVATE_WITH_EGRESS)
-		cpuSubnetIds = []string{subnetId}
-	} else {
-		cpuSubnetIds = computeNodeSubnetIds
-	}
-
-	cpuNetworkingConfig := map[string]interface{}{
-		"SubnetIds":      cpuSubnetIds,
-		"SecurityGroups": []string{*computeNodeSg.SecurityGroupId()},
-	}
-	if types.GetBoolValue(pcInstance.PlacementGroupEnabled, false) {
-		placementGroup := map[string]interface{}{"Enabled": true}
-		if pcInstance.PlacementGroupId != "" {
-			placementGroup["Id"] = pcInstance.PlacementGroupId
-		}
-		cpuNetworkingConfig["PlacementGroup"] = placementGroup
-	}
 
 	// 按 ; 分组，每组生成一对 cpu / cpu-spot 队列
 	queues := []map[string]interface{}{}
@@ -1158,8 +1125,35 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			spotQueueName = fmt.Sprintf("cpu-%d-spot", idx)
 		}
 
-		// 按 ; 取对应组的 tags（越界则为空）
-		groupTags := getGroupByIndex(pcInstance.CpuNodeTags, idx)
+		// 按位置取对应组的配置
+		groupTags := list.GetGroup(pcInstance.CpuNodeTags, idx)
+		efaEnabled := list.GetBool(pcInstance.EnableEfa, idx, false)
+		pgEnabled := list.GetBool(pcInstance.PlacementGroupEnabled, idx, false)
+
+		// 构建当前分组的网络配置
+		var cpuSubnetIds []string
+		if pgEnabled {
+			azIndex := list.GetInt(pcInstance.PgAzIndex, idx, pcInstance.AzIndex)
+			if azIndex == 0 {
+				azIndex = pcInstance.AzIndex
+			}
+			subnetId := aws.SelectSubnetIdByAzIndex(azIndex, ctx.VPC, awsec2.SubnetType_PRIVATE_WITH_EGRESS)
+			cpuSubnetIds = []string{subnetId}
+		} else {
+			cpuSubnetIds = computeNodeSubnetIds
+		}
+
+		cpuNetworkingConfig := map[string]interface{}{
+			"SubnetIds":      cpuSubnetIds,
+			"SecurityGroups": []string{*computeNodeSg.SecurityGroupId()},
+		}
+		if pgEnabled {
+			placementGroup := map[string]interface{}{"Enabled": true}
+			if pcInstance.PlacementGroupId != "" {
+				placementGroup["Id"] = pcInstance.PlacementGroupId
+			}
+			cpuNetworkingConfig["PlacementGroup"] = placementGroup
+		}
 
 		// 按需队列
 		cpuComputeResources := createComputeResources(
@@ -1169,7 +1163,7 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			pcInstance.DisableSimultaneousMultithreading,
 			"cpu",
 		)
-		if types.GetBoolValue(pcInstance.EnableEfa, false) {
+		if efaEnabled {
 			for i := range cpuComputeResources {
 				cpuComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
 			}
@@ -1202,7 +1196,7 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 		queues = append(queues, cpuQueue)
 
 		// Spot 队列（可通过 disableCpuSpotQueue 禁用，适用于不支持 spot 的实例如 hpc8a）
-		if !types.GetBoolValue(pcInstance.DisableCpuSpotQueue, false) {
+		if !list.GetBool(pcInstance.DisableCpuSpotQueue, idx, false) {
 			cpuSpotComputeResources := createComputeResources(
 				instanceTypeGroup,
 				0,
@@ -1210,7 +1204,7 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 				pcInstance.DisableSimultaneousMultithreading,
 				"cpu-spot",
 			)
-			if types.GetBoolValue(pcInstance.EnableEfa, false) {
+			if efaEnabled {
 				for i := range cpuSpotComputeResources {
 					cpuSpotComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
 				}
@@ -1260,26 +1254,6 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			gpuMaxSize = 4
 		}
 
-		// 构建 GPU 网络配置（所有 GPU 队列共享）
-		var gpuSubnetIds []string
-		if types.GetBoolValue(pcInstance.GpuPlacementGroupEnabled, false) {
-			azIndex := pcInstance.AzIndex
-			if pcInstance.GpuPgAzIndex > 0 {
-				azIndex = pcInstance.GpuPgAzIndex
-			}
-			subnetId := aws.SelectSubnetIdByAzIndex(azIndex, ctx.VPC, awsec2.SubnetType_PRIVATE_WITH_EGRESS)
-			gpuSubnetIds = []string{subnetId}
-		} else {
-			gpuSubnetIds = computeNodeSubnetIds
-		}
-
-		gpuNetworkingConfig := map[string]interface{}{
-			"SubnetIds":      gpuSubnetIds,
-			"SecurityGroups": []string{*computeNodeSg.SecurityGroupId()},
-		}
-		if types.GetBoolValue(pcInstance.GpuPlacementGroupEnabled, false) {
-			gpuNetworkingConfig["PlacementGroup"] = map[string]interface{}{"Enabled": true}
-		}
 
 		// 按 ; 分组
 		gpuGroups := strings.Split(gpuInstanceTypeStr, ";")
@@ -1294,7 +1268,30 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 				spotQueueName = fmt.Sprintf("gpu-%d-spot", idx)
 			}
 
-			groupTags := getGroupByIndex(pcInstance.GpuNodeTags, idx)
+			groupTags := list.GetGroup(pcInstance.GpuNodeTags, idx)
+			gpuEfaEnabled := list.GetBool(pcInstance.GpuEnableEfa, idx, false)
+			gpuPgEnabled := list.GetBool(pcInstance.GpuPlacementGroupEnabled, idx, false)
+
+			// 构建当前分组的 GPU 网络配置
+			var gpuSubnetIds []string
+			if gpuPgEnabled {
+				azIndex := list.GetInt(pcInstance.GpuPgAzIndex, idx, pcInstance.AzIndex)
+				if azIndex == 0 {
+					azIndex = pcInstance.AzIndex
+				}
+				subnetId := aws.SelectSubnetIdByAzIndex(azIndex, ctx.VPC, awsec2.SubnetType_PRIVATE_WITH_EGRESS)
+				gpuSubnetIds = []string{subnetId}
+			} else {
+				gpuSubnetIds = computeNodeSubnetIds
+			}
+
+			gpuNetworkingConfig := map[string]interface{}{
+				"SubnetIds":      gpuSubnetIds,
+				"SecurityGroups": []string{*computeNodeSg.SecurityGroupId()},
+			}
+			if gpuPgEnabled {
+				gpuNetworkingConfig["PlacementGroup"] = map[string]interface{}{"Enabled": true}
+			}
 
 			// 按需队列
 			gpuComputeResources := createComputeResources(
@@ -1304,7 +1301,7 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 				pcInstance.DisableSimultaneousMultithreading,
 				"gpu",
 			)
-			if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
+			if gpuEfaEnabled {
 				for i := range gpuComputeResources {
 					gpuComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
 				}
@@ -1337,7 +1334,7 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 			queues = append(queues, gpuQueue)
 
 			// Spot 队列（可通过 disableGpuSpotQueue 禁用，适用于不支持 spot 的实例）
-			if !types.GetBoolValue(pcInstance.DisableGpuSpotQueue, false) {
+			if !list.GetBool(pcInstance.DisableGpuSpotQueue, idx, false) {
 				gpuSpotComputeResources := createComputeResources(
 					instanceTypeGroup,
 					0,
@@ -1345,7 +1342,7 @@ func getSlurmQueues(pcInstance *ParallelClusterInstanceConfig, computeNodeSubnet
 					pcInstance.DisableSimultaneousMultithreading,
 					"gpu-spot",
 				)
-				if types.GetBoolValue(pcInstance.GpuEnableEfa, false) {
+				if gpuEfaEnabled {
 					for i := range gpuSpotComputeResources {
 						gpuSpotComputeResources[i]["Efa"] = map[string]interface{}{"Enabled": true}
 					}

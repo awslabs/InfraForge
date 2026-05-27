@@ -48,7 +48,7 @@ forges:
       minSize: 2
       maxSize: 5
       diskSize: 30
-      eksVersion: "1.33"
+      eksVersion: "1.35"
       adminUsers: ""
       controlPlaneAzIndices: 1,2
       commentNvidiaPluginVersion: === https://catalog.ngc.nvidia.com/orgs/nvidia/containers/k8s-device-plugin/tags ===
@@ -102,7 +102,7 @@ forges:
       enableHyperPodComponents: false
       useModernTrainingOperator: false
       commentKarpenterVersion: === https://karpenter.sh ===
-      karpenterVersion: 1.7.1
+      karpenterVersion: 1.12.0
       karpenterNodePools: cpu,gpu,neuron
       karpenterOsType: linux
       commentCpu: === 通用 CPU 节点池 ===

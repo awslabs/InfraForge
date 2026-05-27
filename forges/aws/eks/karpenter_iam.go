@@ -44,7 +44,7 @@ func createKarpenterIamResources(scope constructs.Construct, id string, cluster 
 	// 创建实例配置文件
 	instanceProfile := awsiam.NewCfnInstanceProfile(scope, jsii.String(fmt.Sprintf("%s-instance-profile", id)), &awsiam.CfnInstanceProfileProps{
 		InstanceProfileName: jsii.String(nodeRoleName),  // 使用与角色相同的名称
-		Roles: jsii.Strings(*nodeRole.RoleName()),
+		Roles: &[]interface{}{nodeRole.RoleName()},
 	})
 
 	// 创建 Karpenter 控制器策略
@@ -217,9 +217,11 @@ func createKarpenterIamResources(scope constructs.Construct, id string, cluster 
 						"ec2:DescribeAvailabilityZones",
 						"ec2:DescribeImages",
 						"ec2:DescribeInstances",
+						"ec2:DescribeInstanceStatus",
 						"ec2:DescribeInstanceTypeOfferings",
 						"ec2:DescribeInstanceTypes",
 						"ec2:DescribeLaunchTemplates",
+						"ec2:DescribePlacementGroups",
 						"ec2:DescribeSecurityGroups",
 						"ec2:DescribeSpotPriceHistory",
 						"ec2:DescribeSubnets",

@@ -141,12 +141,24 @@ func deployPrometheusStack(stack awscdk.Stack, cluster awseks.Cluster, eksInstan
 		}
 	}
 
+	// Step 1: 先安装 prometheus-operator CRDs（独立 chart）
+	crdChart := cluster.AddHelmChart(jsii.String("prometheus-crds"), &awseks.HelmChartOptions{
+		Chart:           jsii.String("prometheus-operator-crds"),
+		Repository:      jsii.String("https://prometheus-community.github.io/helm-charts"),
+		Namespace:       jsii.String("monitoring"),
+		CreateNamespace: jsii.Bool(true),
+	})
+
+	// Step 2: 安装 kube-prometheus-stack（跳过 CRDs，由上面的 chart 管理）
 	helmOptions := &awseks.HelmChartOptions{
 		Chart:           jsii.String("kube-prometheus-stack"),
 		Repository:      jsii.String("https://prometheus-community.github.io/helm-charts"),
 		Namespace:       jsii.String("monitoring"),
 		CreateNamespace: jsii.Bool(true),
 		Values: &map[string]interface{}{
+			"crds": map[string]interface{}{
+				"enabled": false,
+			},
 			"prometheus": map[string]interface{}{
 				"prometheusSpec": prometheusSpec,
 			},
@@ -158,7 +170,10 @@ func deployPrometheusStack(stack awscdk.Stack, cluster awseks.Cluster, eksInstan
 		helmOptions.Version = jsii.String(eksInstance.PrometheusStackVersion)
 	}
 
-	return cluster.AddHelmChart(jsii.String("prometheus-stack"), helmOptions)
+	promChart := cluster.AddHelmChart(jsii.String("prometheus-stack"), helmOptions)
+	promChart.Node().AddDependency(crdChart)
+
+	return promChart
 }
 
 // deployDcgmExporter 部署 DCGM Exporter 用于GPU监控

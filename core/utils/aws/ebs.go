@@ -75,7 +75,6 @@ func createSingleBlockDevice(volumeType string, size, iops, throughput int, devi
 
 	ebsOptions := &awsec2.EbsDeviceOptions{
 		VolumeType: ebsVolumeType,
-		Throughput: jsii.Number(throughput),
 		Iops:       jsii.Number(iops),
 	}
 

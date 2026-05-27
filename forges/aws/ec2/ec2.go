@@ -68,6 +68,7 @@ type Ec2InstanceConfig struct {
 	UserDataScriptPath       string `json:"userDataScriptPath,omitempty"`
 	StoreInstanceInfo        *bool  `json:"storeInstanceInfo,omitempty"`
 	BandwidthWeighting       string `json:"bandwidthWeighting,omitempty"`       // 带宽权重: "default", "vpc-1", "ebs-1"
+	NestedVirtualization     *bool  `json:"nestedVirtualization,omitempty"`     // 嵌套虚拟化
 }
 
 /*
@@ -255,7 +256,6 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 		keyName = *awscdk.Aws_STACK_NAME()
 	}
 	iKeyPair = aws.CreateOrGetKeyPair(stack, keyName, ec2Instance.OsType)
-	// 创建配置
 	ebsConfig := &aws.EbsConfig{
 		VolumeTypes:   ec2Instance.EbsVolumeType,
 		Iops:          ec2Instance.EbsIops,
@@ -351,7 +351,7 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 
 	// 检查是否需要创建启动模板
 	needsHighThroughput := aws.NeedsLaunchTemplateForThroughput(ec2Instance.EbsVolumeType, ec2Instance.EbsThroughput)
-	needsLaunchTemplate := types.GetBoolValue(ec2Instance.EnableEfa, false) || types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) || needsHighThroughput || ec2Instance.NetworkCardCount > 1 || ec2Instance.EniCount > 1 || ec2Instance.PurchaseOption == "spot" || ec2Instance.CapacityBlockId != "" || ec2Instance.BandwidthWeighting != ""
+	needsLaunchTemplate := types.GetBoolValue(ec2Instance.EnableEfa, false) || types.GetBoolValue(ec2Instance.EnaSrdEnabled, false) || needsHighThroughput || ec2Instance.NetworkCardCount > 1 || ec2Instance.EniCount > 1 || ec2Instance.PurchaseOption == "spot" || ec2Instance.CapacityBlockId != "" || ec2Instance.BandwidthWeighting != "" || types.GetBoolValue(ec2Instance.NestedVirtualization, false)
 
 	if needsLaunchTemplate {
 		// 获取原始EC2实例的L1构造
@@ -469,6 +469,13 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 		if ec2Instance.BandwidthWeighting != "" {
 			launchTemplateData.NetworkPerformanceOptions = &awsec2.CfnLaunchTemplate_NetworkPerformanceOptionsProperty{
 				BandwidthWeighting: jsii.String(ec2Instance.BandwidthWeighting),
+			}
+		}
+
+		// 嵌套虚拟化
+		if types.GetBoolValue(ec2Instance.NestedVirtualization, false) {
+			launchTemplateData.CpuOptions = &awsec2.CfnLaunchTemplate_CpuOptionsProperty{
+				NestedVirtualization: jsii.String("enabled"),
 			}
 		}
 
@@ -695,6 +702,9 @@ func (e *Ec2Forge) MergeConfigs(defaults config.InstanceConfig, instance config.
 	}
 	if ec2Instance.BandwidthWeighting != "" {
 		merged.BandwidthWeighting = ec2Instance.BandwidthWeighting
+	}
+	if ec2Instance.NestedVirtualization != nil {
+		merged.NestedVirtualization = ec2Instance.NestedVirtualization
 	}
 	if ec2Instance.AllowedPorts != "" {
 		merged.AllowedPorts = ec2Instance.AllowedPorts

@@ -5,18 +5,20 @@ package batch
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/awslabs/InfraForge/core/config"
 	"github.com/awslabs/InfraForge/core/dependency"
 	"github.com/awslabs/InfraForge/core/interfaces"
+	"github.com/awslabs/InfraForge/core/partition"
 	"github.com/awslabs/InfraForge/core/utils/aws"
+	"github.com/awslabs/InfraForge/core/utils/list"
 	"github.com/awslabs/InfraForge/core/utils/types"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsbatch"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsec2"
+	"github.com/aws/aws-cdk-go/awscdk/v2/awsecr"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsecs"
 	"github.com/aws/jsii-runtime-go"
 )
@@ -126,41 +128,26 @@ func (b *BatchForge) Create(ctx *interfaces.ForgeContext) interface{} {
 // ── Compute Environments ──────────────────────────────────────────────────────
 
 func (b *BatchForge) createComputeEnvironments(inst *BatchInstanceConfig, ctx *interfaces.ForgeContext) {
-	ceNames := splitComma(inst.CeNames)
-	instanceTypeGroups := splitSemi(inst.InstanceTypes)
-	maxvCpusList := splitComma(inst.MaxvCpus)
-	minvCpusList := splitComma(inst.MinvCpus)
-	azIndexList := splitComma(inst.AzIndex)
-	spotBidList := splitComma(inst.SpotBidPercentage)
-	imageTypeList := splitComma(inst.ImageTypes)
-	placementGroupList := splitComma(inst.PlacementGroupStrategy)
-
+	instanceTypeGroups := strings.Split(inst.InstanceTypes, ";")
 	count := len(instanceTypeGroups)
-	if count == 0 {
+	if count == 0 || inst.InstanceTypes == "" {
 		return
 	}
 
-	ceNames = padNames(ceNames, count, inst.GetID()+"-ce")
-
-	if len(maxvCpusList) != count {
-		panic(fmt.Sprintf("batch %s: instanceTypes(%d) 与 maxvCpus(%d) 数量不一致", inst.GetID(), count, len(maxvCpusList)))
-	}
+	ceNames := padNames(strings.Split(inst.CeNames, ","), count, inst.GetID()+"-ce")
 
 	for i, instanceTypeGroup := range instanceTypeGroups {
+		instanceTypeGroup = strings.TrimSpace(instanceTypeGroup)
 		ceName := fmt.Sprintf("%s-%s-compute-env", inst.GetID(), ceNames[i])
 
-		// , 分隔同一 CE 内的多个实例类型
 		rawTypes := strings.Split(instanceTypeGroup, ",")
 		instanceTypesList := make([]awsec2.InstanceType, len(rawTypes))
 		for j, t := range rawTypes {
 			instanceTypesList[j] = awsec2.NewInstanceType(jsii.String(strings.TrimSpace(t)))
 		}
 
-		maxvCpus, _ := strconv.Atoi(strings.TrimSpace(maxvCpusList[i]))
-		minvCpus := 0
-		if i < len(minvCpusList) && minvCpusList[i] != "" {
-			minvCpus, _ = strconv.Atoi(strings.TrimSpace(minvCpusList[i]))
-		}
+		maxvCpus := list.GetInt(inst.MaxvCpus, i, 256)
+		minvCpus := list.GetInt(inst.MinvCpus, i, 0)
 
 		props := &awsbatch.ManagedEc2EcsComputeEnvironmentProps{
 			ComputeEnvironmentName:     jsii.String(ceName),
@@ -173,18 +160,15 @@ func (b *BatchForge) createComputeEnvironments(inst *BatchInstanceConfig, ctx *i
 			UpdateToLatestImageVersion: jsii.Bool(types.GetBoolValue(inst.UpdateToLatestImageVersion, false)),
 		}
 
-		// 按 CE 位置设置 AMI 类型，GPU CE 必须指定 ECS_AL2023_NVIDIA 否则无法加入
-		if i < len(imageTypeList) && imageTypeList[i] != "" {
-			imageType := resolveImageType(imageTypeList[i])
+		// 按 CE 位置设置 AMI 类型
+		imageType := list.GetString(inst.ImageTypes, i, "")
+		if imageType != "" {
 			props.Images = &[]*awsbatch.EcsMachineImage{
-				{ImageType: imageType},
+				{ImageType: resolveImageType(imageType)},
 			}
 		}
 
-		azIdx := 0
-		if i < len(azIndexList) && azIndexList[i] != "" {
-			azIdx, _ = strconv.Atoi(strings.TrimSpace(azIndexList[i]))
-		}
+		azIdx := list.GetInt(inst.AzIndex, i, 0)
 		if azIdx > 0 {
 			selectedSubnet := aws.SelectSubnetByAzIndex(azIdx, ctx.VPC, ctx.SubnetType)
 			props.VpcSubnets = &awsec2.SubnetSelection{
@@ -203,19 +187,13 @@ func (b *BatchForge) createComputeEnvironments(inst *BatchInstanceConfig, ctx *i
 			props.LaunchTemplate = launchTemplate
 		}
 
-		// 按 CE 位置取对应的 SpotBidPercentage；0 或空表示 On-Demand
-		spotBid := 0
-		if i < len(spotBidList) {
-			if v, err := strconv.Atoi(spotBidList[i]); err == nil {
-				spotBid = v
-			}
-		}
+		// 按 CE 位置取对应的 SpotBidPercentage；0 表示 On-Demand
+		spotBid := list.GetInt(inst.SpotBidPercentage, i, 0)
 		if spotBid > 0 {
 			props.Spot = jsii.Bool(true)
 			props.SpotBidPercentage = jsii.Number(spotBid)
 		}
 
-		// AllocationStrategy 必须与 Spot/OD 匹配：Spot 策略不能用于 OD CE
 		if inst.AllocationStrategy != "" {
 			switch inst.AllocationStrategy {
 			case "BEST_FIT":
@@ -237,12 +215,13 @@ func (b *BatchForge) createComputeEnvironments(inst *BatchInstanceConfig, ctx *i
 			props.ServiceRole = serviceRole
 		}
 
-		// PlacementGroup：按 CE 位置对应；CLUSTER 适合 Multinode/MPI，保证同 AZ 高带宽
-		if i < len(placementGroupList) && placementGroupList[i] != "" {
+		// PlacementGroup：按 CE 位置对应
+		pgStrategy := list.GetString(inst.PlacementGroupStrategy, i, "")
+		if pgStrategy != "" {
 			pgName := fmt.Sprintf("%s-%s-pg", inst.GetID(), ceNames[i])
 			pg := awsec2.NewPlacementGroup(ctx.Stack, jsii.String(pgName), &awsec2.PlacementGroupProps{
 				PlacementGroupName: jsii.String(pgName),
-				Strategy:           resolvePlacementGroupStrategy(placementGroupList[i]),
+				Strategy:           resolvePlacementGroupStrategy(pgStrategy),
 			})
 			props.PlacementGroup = pg
 		}
@@ -292,16 +271,16 @@ func (b *BatchForge) createLaunchTemplateWithUserData(inst *BatchInstanceConfig,
 // ── Job Queues ────────────────────────────────────────────────────────────────
 
 func (b *BatchForge) createJobQueues(inst *BatchInstanceConfig, ctx *interfaces.ForgeContext) {
-	queueNames := splitComma(inst.QueueNames)
-	queueCeRefs := splitComma(inst.QueueCeRefs)
-	queuePriorities := splitComma(inst.QueuePriorities)
+	queueNames := strings.Split(inst.QueueNames, ",")
+	queueCeRefs := strings.Split(inst.QueueCeRefs, ",")
 
 	// 若未指定 queueNames，为每个 CE 自动生成一个同名 Queue
-	if len(queueNames) == 0 {
+	if inst.QueueNames == "" {
+		queueNames = nil
+		queueCeRefs = nil
 		for ceName := range b.computeEnvironments {
 			queueNames = append(queueNames, ceName)
 			queueCeRefs = append(queueCeRefs, ceName)
-			queuePriorities = append(queuePriorities, "10")
 		}
 	}
 
@@ -311,14 +290,10 @@ func (b *BatchForge) createJobQueues(inst *BatchInstanceConfig, ctx *interfaces.
 	}
 
 	for i, queueName := range queueNames {
+		queueName = strings.TrimSpace(queueName)
 		fullQueueName := fmt.Sprintf("%s-%s", inst.GetID(), queueName)
 
-		priority := 10
-		if i < len(queuePriorities) {
-			if p, err := strconv.Atoi(strings.TrimSpace(queuePriorities[i])); err == nil {
-				priority = p
-			}
-		}
+		priority := list.GetInt(inst.QueuePriorities, i, 10)
 
 		ceRef := strings.TrimSpace(queueCeRefs[i])
 		ce, ok := b.computeEnvironments[ceRef]
@@ -344,26 +319,22 @@ func (b *BatchForge) createJobQueues(inst *BatchInstanceConfig, ctx *interfaces.
 // ── Job Definitions ───────────────────────────────────────────────────────────
 
 func (b *BatchForge) createJobDefinitions(inst *BatchInstanceConfig, ctx *interfaces.ForgeContext) {
-	nameList := parseJobDefNames(inst.JobDefNames, inst.GetID(), len(splitComma(inst.JobDefNames)))
+	nameList := parseJobDefNames(inst.JobDefNames, inst.GetID())
 	count := len(nameList)
-	images := broadcastString(inst.ContainerImage, count)
-	vcpuList := parseIntListFromString(inst.VCpus, count, 1)
-	memoryList := parseIntListFromString(inst.Memory, count, 512)
-	timeoutList := parseIntListFromString(inst.TimeoutMinutes, count, 0)
-	numNodesList := parseIntListFromString(inst.NumNodes, count, 2)
-	mainNodeList := parseIntListFromString(inst.MainNode, count, 0)
 
-	if len(images) != count || len(vcpuList) != count || len(memoryList) != count {
-		panic(fmt.Sprintf("batch %s: jobDefNames(%d), containerImage(%d), vcpus(%d), memory(%d) 数量不一致",
-			inst.GetID(), count, len(images), len(vcpuList), len(memoryList)))
-	}
+	for i := 0; i < count; i++ {
+		image := list.GetString(inst.ContainerImage, i, "")
+		vcpus := list.GetInt(inst.VCpus, i, 1)
+		memory := list.GetInt(inst.Memory, i, 512)
+		timeout := list.GetInt(inst.TimeoutMinutes, i, 0)
+		numNodes := list.GetInt(inst.NumNodes, i, 2)
+		mainNode := list.GetInt(inst.MainNode, i, 0)
 
-	for i, image := range images {
 		var jd awsbatch.IJobDefinition
 		if inst.JobDefinitionType == "multinode" {
-			jd = b.createMultinodeJobDefinition(inst, ctx, nameList[i], image, vcpuList[i], memoryList[i], timeoutList[i], numNodesList[i], mainNodeList[i])
+			jd = b.createMultinodeJobDefinition(inst, ctx, nameList[i], image, vcpus, memory, timeout, numNodes, mainNode)
 		} else {
-			jd = b.createContainerJobDefinition(inst, ctx, nameList[i], image, vcpuList[i], memoryList[i], timeoutList[i])
+			jd = b.createContainerJobDefinition(inst, ctx, nameList[i], image, vcpus, memory, timeout)
 		}
 		b.jobDefinitions = append(b.jobDefinitions, namedJobDef{name: nameList[i], jd: jd})
 	}
@@ -374,7 +345,7 @@ func (b *BatchForge) createContainerJobDefinition(inst *BatchInstanceConfig, ctx
 	execRole := aws.CreateRole(ctx.Stack, execRoleId, "service-role/AmazonECSTaskExecutionRolePolicy", "ecs-tasks")
 
 	containerProps := &awsbatch.EcsEc2ContainerDefinitionProps{
-		Image:         awsecs.ContainerImage_FromRegistry(jsii.String(image), &awsecs.RepositoryImageProps{}),
+		Image:         resolveContainerImage(ctx.Stack, image, jobDefName),
 		Cpu:           jsii.Number(vcpus),
 		Memory:        awscdk.Size_Mebibytes(jsii.Number(memory)),
 		ExecutionRole: execRole,
@@ -423,7 +394,7 @@ func (b *BatchForge) createMultinodeJobDefinition(inst *BatchInstanceConfig, ctx
 	execRole := aws.CreateRole(ctx.Stack, execRoleId, "service-role/AmazonECSTaskExecutionRolePolicy", "ecs-tasks")
 
 	containerProps := &awsbatch.EcsEc2ContainerDefinitionProps{
-		Image:         awsecs.ContainerImage_FromRegistry(jsii.String(image), &awsecs.RepositoryImageProps{}),
+		Image:         resolveContainerImage(ctx.Stack, image, jobDefName),
 		Cpu:           jsii.Number(vcpus),
 		Memory:        awscdk.Size_Mebibytes(jsii.Number(memory)),
 		ExecutionRole: execRole,
@@ -461,7 +432,7 @@ func (b *BatchForge) createStorageVolumes(inst *BatchInstanceConfig) []awsbatch.
 		return volumes
 	}
 
-	for _, dep := range splitComma(inst.DependsOn) {
+	for _, dep := range strings.Split(inst.DependsOn, ",") {
 		mountPoint, err := dependency.GetMountPoint(dep)
 		if err != nil {
 			fmt.Printf("Error getting mount point for %s: %v\n", dep, err)
@@ -638,73 +609,15 @@ func (b *BatchForge) CreateOutputs(ctx *interfaces.ForgeContext) {
 
 // ── 辅助函数 ──────────────────────────────────────────────────────────────────
 
-// splitSemi 用 ; 分隔不同 CE（仅 instanceTypes 使用）
-func splitSemi(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ";")
-	for i, p := range parts {
-		parts[i] = strings.TrimSpace(p)
-	}
-	return parts
-}
-
-// splitComma 用 , 分隔多个成员（其他所有多值字段）
-func splitComma(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	for i, p := range parts {
-		parts[i] = strings.TrimSpace(p)
-	}
-	return parts
-}
-
 // padNames 若 names 数量不足 count，用 prefix-0/1/2 补齐
 func padNames(names []string, count int, prefix string) []string {
 	result := make([]string, count)
 	for i := range result {
-		if i < len(names) {
-			result[i] = names[i]
+		if i < len(names) && strings.TrimSpace(names[i]) != "" {
+			result[i] = strings.TrimSpace(names[i])
 		} else {
 			result[i] = fmt.Sprintf("%s-%d", prefix, i)
 		}
-	}
-	return result
-}
-
-// broadcastString 单值则广播到 count 个，多值直接返回
-func broadcastString(s string, count int) []string {
-	parts := splitComma(s)
-	if len(parts) == 1 {
-		result := make([]string, count)
-		for i := range result {
-			result[i] = parts[0]
-		}
-		return result
-	}
-	return parts
-}
-
-// parseIntListFromString 解析逗号分隔的整数列表；单值则广播，空串用 defaultVal 广播
-func parseIntListFromString(s string, count int, defaultVal int) []int {
-	result := make([]int, count)
-	parts := splitComma(s)
-
-	for i := range result {
-		val := defaultVal
-		if len(parts) == 1 {
-			if v, err := strconv.Atoi(parts[0]); err == nil {
-				val = v
-			}
-		} else if i < len(parts) {
-			if v, err := strconv.Atoi(parts[i]); err == nil {
-				val = v
-			}
-		}
-		result[i] = val
 	}
 	return result
 }
@@ -726,25 +639,51 @@ func resolvePlacementGroupStrategy(s string) awsec2.PlacementGroupStrategy {
 // resolveImageType 将字符串映射到 EcsMachineImageType
 func resolveImageType(s string) awsbatch.EcsMachineImageType {
 	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "ECS_AL2":
+		return awsbatch.EcsMachineImageType_ECS_AL2
 	case "ECS_AL2_NVIDIA":
 		return awsbatch.EcsMachineImageType_ECS_AL2_NVIDIA
-	case "ECS_AL2023":
+	case "ECS_AL2023_NVIDIA":
+		return awsbatch.EcsMachineImageType_ECS_AL2023_NVIDIA
+	default:
 		return awsbatch.EcsMachineImageType_ECS_AL2023
-	// TODO: 升级 CDK 版本后启用 ECS_AL2023_NVIDIA
-	// case "ECS_AL2023_NVIDIA":
-	// 	return awsbatch.EcsMachineImageType_ECS_AL2023_NVIDIA
-	default: // ECS_AL2
-		return awsbatch.EcsMachineImageType_ECS_AL2
 	}
 }
 
+// resolveContainerImage 根据镜像 URL 判断使用 ECR 还是通用 Registry
+// ECR URL 格式: <account>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
+func resolveContainerImage(stack awscdk.Stack, image, idPrefix string) awsecs.ContainerImage {
+	if strings.Contains(image, ".dkr.ecr.") && strings.Contains(image, ".amazonaws.com") {
+		parts := strings.SplitN(image, "/", 2)
+		if len(parts) == 2 {
+			repoAndTag := parts[1]
+			repoName := repoAndTag
+			tag := "latest"
+			if idx := strings.LastIndex(repoAndTag, ":"); idx >= 0 {
+				repoName = repoAndTag[:idx]
+				tag = repoAndTag[idx+1:]
+			}
+			repo := awsecr.Repository_FromRepositoryAttributes(stack, jsii.String(idPrefix+"-ecr-repo"), &awsecr.RepositoryAttributes{
+				RepositoryName: jsii.String(repoName),
+				RepositoryArn:  jsii.String(fmt.Sprintf("arn:%s:ecr:%s:%s:repository/%s", partition.DefaultPartition, *stack.Region(), *stack.Account(), repoName)),
+			})
+			return awsecs.ContainerImage_FromEcrRepository(repo, jsii.String(tag))
+		}
+	}
+	return awsecs.ContainerImage_FromRegistry(jsii.String(image), &awsecs.RepositoryImageProps{})
+}
+
 // parseJobDefNames 生成 JD 名字列表
-func parseJobDefNames(jobDefNames, baseID string, count int) []string {
-	names := splitComma(jobDefNames)
-	result := make([]string, count)
-	for i := range result {
-		if i < len(names) {
-			result[i] = fmt.Sprintf("%s-%s-job-def", baseID, names[i])
+func parseJobDefNames(jobDefNames, baseID string) []string {
+	if jobDefNames == "" {
+		return nil
+	}
+	names := strings.Split(jobDefNames, ",")
+	result := make([]string, len(names))
+	for i, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			result[i] = fmt.Sprintf("%s-%s-job-def", baseID, name)
 		} else {
 			result[i] = fmt.Sprintf("%s-job-def-%d", baseID, i)
 		}

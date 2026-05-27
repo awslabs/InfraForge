@@ -50,7 +50,7 @@ osArch = "x86_64"
 minSize = 2
 maxSize = 5
 diskSize = 30
-eksVersion = "1.33"
+eksVersion = "1.35"
 adminUsers = ""
 controlPlaneAzIndices = "1,2"
 commentNvidiaPluginVersion = "=== https://catalog.ngc.nvidia.com/orgs/nvidia/containers/k8s-device-plugin/tags ==="
@@ -104,7 +104,7 @@ kServeIngressClass = "istio"
 enableHyperPodComponents = false
 useModernTrainingOperator = false
 commentKarpenterVersion = "=== https://karpenter.sh ==="
-karpenterVersion = "1.7.1"
+karpenterVersion = "1.12.0"
 karpenterNodePools = "cpu,gpu,neuron"
 karpenterOsType = "linux"
 commentCpu = "=== 通用 CPU 节点池 ==="
@@ -152,7 +152,7 @@ karpenterNeuronLabels = "accelerator=neuron,workload-type=inference"
 
 [[forges.eks.instances]]
 id = "eks"
-eksVersion = "1.33"
+eksVersion = "1.34"
 dependsOn = "LUSTRE:fsx"
 deployCsiDriver = true
 createStorageClass = true
@@ -173,7 +173,7 @@ instanceType = "ml.g5.xlarge"
 instanceCount = 0
 azIndex = 1
 threadsPerCore = 1
-eksVersion = "1.33"
+eksVersion = "1.34"
 ebsVolumeSizeGb = 500
 createLustre = true
 lustreStorageCapacity = 1200

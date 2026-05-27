@@ -38,6 +38,7 @@ forges:
       capacityBlockId: ""
       enableEfa: false
       enaSrdEnabled: false
+      nestedVirtualization: false
       osArch: aarch64
       osName: amazon
       osType: linux

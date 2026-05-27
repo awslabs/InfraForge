@@ -72,6 +72,10 @@ func loadConfigFile(filePath string) (*Config, error) {
 	// Now parse the JSON (either original or converted)
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
+		if syntaxErr, ok := err.(*json.SyntaxError); ok {
+			line, col := offsetToLineCol(data, syntaxErr.Offset)
+			return nil, fmt.Errorf("error parsing config at line %d, column %d: %w", line, col, err)
+		}
 		return nil, fmt.Errorf("error parsing config: %w", err)
 	}
 
@@ -127,7 +131,21 @@ func SaveAsYAML(config *Config, filePath string) error {
 	if err := ioutil.WriteFile(filePath, yamlData, 0644); err != nil {
 		return fmt.Errorf("error writing YAML file: %w", err)
 	}
-	
+
 	fmt.Printf("Configuration saved to %s\n", filePath)
 	return nil
+}
+
+func offsetToLineCol(data []byte, offset int64) (line, col int) {
+	line = 1
+	col = 1
+	for i := int64(0); i < offset && i < int64(len(data)); i++ {
+		if data[i] == '\n' {
+			line++
+			col = 1
+		} else {
+			col++
+		}
+	}
+	return
 }

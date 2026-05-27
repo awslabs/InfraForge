@@ -202,9 +202,8 @@ func deployRayOperator(stack awscdk.Stack, cluster awseks.Cluster, version strin
 	return cluster.AddHelmChart(jsii.String("ray-operator"), helmOptions)
 }
 
-// deployKServe 部署 KServe (使用 Helm)
-func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, ingressClass string, s3BucketName string) awseks.HelmChart {
-	// 默认使用 istio
+// deployKServe 部署 KServe（使用 Job + helm template | kubectl apply，与 HyperPod 组件一致）
+func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, ingressClass string, s3BucketName string) awseks.KubernetesManifest {
 	if ingressClass == "" {
 		ingressClass = "istio"
 	}
@@ -215,7 +214,6 @@ func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, in
 		Namespace: jsii.String("default"),
 	})
 
-	// 如果指定了 S3 bucket，创建 S3 访问策略
 	if s3BucketName != "" {
 		kserveS3Policy := awsiam.NewPolicy(stack, jsii.String("KServeS3AccessPolicy"), &awsiam.PolicyProps{
 			Statements: &[]awsiam.PolicyStatement{
@@ -232,49 +230,59 @@ func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, in
 				}),
 			},
 		})
-		// 将策略附加到 ServiceAccount 的角色
 		kserveServiceAccount.Role().AttachInlinePolicy(kserveS3Policy)
 	}
 
-	// 先安装 CRDs
-	crdChart := cluster.AddHelmChart(jsii.String("kserve-crd"), &awseks.HelmChartOptions{
-		Chart:           jsii.String("oci://ghcr.io/kserve/charts/kserve-crd"),
-		Version:         jsii.String(fmt.Sprintf("v%s", version)),
-		Release:         jsii.String("kserve-crd"),
-		Namespace:       jsii.String("kserve"),
-		CreateNamespace: jsii.Bool(true),
-	})
-
-	// 再安装 KServe Controller，配置为 RawDeployment 模式
-	kserveChart := cluster.AddHelmChart(jsii.String("kserve"), &awseks.HelmChartOptions{
-		Chart:     jsii.String("oci://ghcr.io/kserve/charts/kserve"),
-		Version:   jsii.String(fmt.Sprintf("v%s", version)),
-		Release:   jsii.String("kserve"),
-		Namespace: jsii.String("kserve"),
-		Values: &map[string]interface{}{
-			"kserve": map[string]interface{}{
-				"controller": map[string]interface{}{
-					"deploymentMode": "RawDeployment",
-					"gateway": map[string]interface{}{
-						"ingressGateway": map[string]interface{}{
-							"className": ingressClass,
+	// 使用 Job + helm template | kubectl apply 方式安装，与 HyperPod 组件一致
+	kserveJob := cluster.AddManifest(jsii.String("kserve-installer-job"), &map[string]interface{}{
+		"apiVersion": "batch/v1",
+		"kind":       "Job",
+		"metadata": map[string]interface{}{
+			"name":      "kserve-installer",
+			"namespace": "kube-system",
+		},
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"serviceAccountName": "eks-admin",
+					"containers": []interface{}{
+						map[string]interface{}{
+							"name":  "installer",
+							"image": "alpine/helm:latest",
+							"command": []interface{}{
+								"sh", "-c",
+								"apk add curl && " +
+									"ARCH=$(uname -m) && " +
+									"if [ \"$ARCH\" = \"aarch64\" ]; then ARCH=\"arm64\"; else ARCH=\"amd64\"; fi && " +
+									"VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt) && " +
+									"curl -LO https://dl.k8s.io/release/$VERSION/bin/linux/$ARCH/kubectl && " +
+									"chmod +x kubectl && mv kubectl /usr/local/bin/ && " +
+									"kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f - && " +
+									fmt.Sprintf("helm template kserve-crd oci://ghcr.io/kserve/charts/kserve-crd --version v%s --namespace kserve ", version) +
+									"| kubectl apply --server-side -f - && echo 'kserve-crd done' && " +
+									fmt.Sprintf("helm template kserve oci://ghcr.io/kserve/charts/kserve --version v%s --namespace kserve ", version) +
+									"--set kserve.controller.deploymentMode=RawDeployment " +
+									fmt.Sprintf("--set kserve.controller.gateway.ingressGateway.className=%s ", ingressClass) +
+									"| kubectl apply -n kserve --server-side --force-conflicts -f - 2>/dev/null; " +
+									"echo 'waiting for controller...' && " +
+									"kubectl rollout status deployment/kserve-controller-manager -n kserve --timeout=300s && " +
+									fmt.Sprintf("helm template kserve oci://ghcr.io/kserve/charts/kserve --version v%s --namespace kserve ", version) +
+									"--set kserve.controller.deploymentMode=RawDeployment " +
+									fmt.Sprintf("--set kserve.controller.gateway.ingressGateway.className=%s ", ingressClass) +
+									"| kubectl apply -n kserve --server-side --force-conflicts -f - && echo 'kserve done'",
+							},
 						},
 					},
+					"restartPolicy": "Never",
 				},
 			},
+			"backoffLimit": 2,
 		},
 	})
 
-	// 确保 Controller 在 CRDs 之后安装
-	kserveChart.Node().AddDependency(crdChart)
-	// 确保 ServiceAccount 在 Helm chart 之前创建
-	kserveChart.Node().AddDependency(kserveServiceAccount)
+	kserveJob.Node().AddDependency(kserveServiceAccount)
 
-	// 修复 KServe webhook 配置，避免删除 InferenceService 时卡住
-	// 问题：默认 webhook 会验证 DELETE 操作，如果 webhook server 不可用会导致删除失败
-	// 解决：1) failurePolicy=Ignore - webhook 失败时允许操作继续
-	//      2) operations 只包含 CREATE/UPDATE - 跳过 DELETE 验证
-	// 使用 NewKubernetesManifest + Overwrite 避免升级时资源冲突
+	// webhook patch：failurePolicy=Ignore，跳过 DELETE 验证
 	webhookPatchManifest := awseks.NewKubernetesManifest(stack, jsii.String("kserve-webhook-patch"), &awseks.KubernetesManifestProps{
 		Cluster:   cluster,
 		Overwrite: jsii.Bool(true),
@@ -304,7 +312,7 @@ func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, in
 							{
 								"apiGroups":   []string{"serving.kserve.io"},
 								"apiVersions": []string{"v1beta1"},
-								"operations":  []string{"CREATE", "UPDATE"}, // 不包含 DELETE，避免删除时被 webhook 阻塞
+								"operations":  []string{"CREATE", "UPDATE"},
 								"resources":   []string{"inferenceservices"},
 								"scope":       "*",
 							},
@@ -316,8 +324,7 @@ func deployKServe(stack awscdk.Stack, cluster awseks.Cluster, version string, in
 			},
 		},
 	})
-	// 确保在 KServe 安装后应用 webhook patch
-	webhookPatchManifest.Node().AddDependency(kserveChart)
+	webhookPatchManifest.Node().AddDependency(kserveJob)
 
-	return kserveChart
+	return kserveJob
 }
