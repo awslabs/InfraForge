@@ -152,6 +152,10 @@ func (l *LustreForge) MergeConfigs(defaults config.InstanceConfig, instance conf
 		}
 	}
 
+	if lustreInstance.AzIndex > 0 {
+		merged.AzIndex = lustreInstance.AzIndex
+	}
+
 	if lustreInstance.StorageCapacityGiB > 0 {
 		merged.StorageCapacityGiB = lustreInstance.StorageCapacityGiB
 	} else { 
