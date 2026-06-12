@@ -37,8 +37,8 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 			"centos": "125523088429",
 			"redhat": "309956199498",
 			"suse":   "013907871322",
-//			"rocky":  "792107900819",
-			"rocky":  "679593333241",
+			"rocky":  "792107900819",
+//			"rocky":  "679593333241",
 			"windows": "801119661308",
 		},
 		"aws-cn": {
@@ -62,8 +62,8 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 					"x86_64":  "amzn2-ami-kernel-5.10-hvm-*-x86_64-gp2",
 				},
 				"2023": {
-					"aarch64": "al2023-ami-2023*-kernel-6.1-arm64",
-					"x86_64":  "al2023-ami-2023*-kernel-6.1-x86_64",
+					"aarch64": "al2023-ami-2023*-kernel-*-arm64",
+					"x86_64":  "al2023-ami-2023*-kernel-*-x86_64",
 				},
 			},
 			"ubuntu": {
@@ -82,6 +82,10 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 				"24.04": {
 					"aarch64": "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*",
 					"x86_64":  "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*",
+				},
+				"26.04": {
+					"aarch64": "ubuntu/images/hvm-ssd-gp3/ubuntu-resolute-26.04-arm64-server-*",
+					"x86_64":  "ubuntu/images/hvm-ssd-gp3/ubuntu-resolute-26.04-amd64-server-*",
 				},
 			},
 			"debian": {
@@ -103,6 +107,10 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 				},
 			},
 			"centos": {
+				"7": {
+					"aarch64": "CentOS Linux 7 aarch64 *",
+					"x86_64":  "CentOS Linux 7 x86_64 *",
+				},
 				"9": {
 					"aarch64": "CentOS Stream 9 aarch64 *",
 					"x86_64":  "CentOS Stream 9 x86_64 *",
@@ -161,8 +169,8 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 					"x86_64":  "amzn2-ami-kernel-5.10-hvm-*-x86_64-gp2",
 				},
 				"2023": {
-					"aarch64": "al2023-ami-2023*-kernel-6.1-arm64",
-					"x86_64":  "al2023-ami-2023*-kernel-6.1-x86_64",
+					"aarch64": "al2023-ami-2023*-kernel-*-arm64",
+					"x86_64":  "al2023-ami-2023*-kernel-*-x86_64",
 				},
 			},
 			"ubuntu": {
@@ -192,6 +200,14 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 				},
 				"12": {
 					"x86_64":  "debian-12-final-*",
+				},
+			},
+			"centos": {
+				"7": {
+					"x86_64": "centos7.5-*",
+				},
+				"8": {
+					"x86_64": "CentOS-8-ec2-*",
 				},
 			},
 			"suse": {
@@ -249,14 +265,23 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 
 type ForgeAMILookup struct {
 	AmiOwner  string
-	AmiName    string
-	AmiArch    string
+	AmiName   string
+	AmiArch   string
+	Region    string
+	Profile   string
 }
 
 func (l *ForgeAMILookup) FindAMI() (osImage string, err error) {
 
 	// 加载 AWS 配置
-	cfg, err := config.LoadDefaultConfig(context.TODO())
+	var opts []func(*config.LoadOptions) error
+	if l.Region != "" {
+		opts = append(opts, config.WithRegion(l.Region))
+	}
+	if l.Profile != "" {
+		opts = append(opts, config.WithSharedConfigProfile(l.Profile))
+	}
+	cfg, err := config.LoadDefaultConfig(context.TODO(), opts...)
 	if err != nil {
 		return "", fmt.Errorf("failed to load AWS configuration: %w", err)
 	}
@@ -266,6 +291,7 @@ func (l *ForgeAMILookup) FindAMI() (osImage string, err error) {
 
 	input := &ec2.DescribeImagesInput{
 		Owners: []string{l.AmiOwner},
+		IncludeDeprecated: aws.Bool(true),
 		Filters: []types.Filter{
 			{
 				Name:   aws.String("name"),

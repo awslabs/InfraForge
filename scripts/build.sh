@@ -32,5 +32,14 @@ echo "${VERSION}" > infraforge-version.txt
 echo "✓ Build completed: infraforge ${VERSION}"
 echo "✓ Version file created: infraforge-version.txt"
 echo
+
+# Build ami-lookup (output to cmd/infraforge for packaging)
+cd ../ami-lookup
+echo "Building ami-lookup..."
+CGO_ENABLED=0 go build -ldflags="-s -w -extldflags=-static" -o ../infraforge/ami-lookup
+echo "✓ Build completed: ami-lookup"
+echo
+
+cd ../infraforge
 echo "Test version info:"
 ./infraforge --version

@@ -1,0 +1,89 @@
+{
+    "global": {
+        "stackName": "aws-infra-forge",
+        "dualStack": true,
+        "description": "Hermes Agent Deployment: Automated deployment of Hermes Agent (by Nous Research) with AWS Bedrock integration. Provisions EC2 instances with Hermes gateway (port 8642) and WebUI (port 8787) pre-configured. Supports customizable Bedrock models via userDataToken parameter (format: hermes-nonroot:bedrock=true;model=<model-id>;webui=true). Includes systemd user services, API key authentication, messaging platform integration (Feishu/WeChat/Telegram/Discord), and multiple access methods (direct, SSH tunnel, SSM port forwarding). Requires IAM policies for Bedrock and SSM access."
+    },
+    "enabledForges": [
+        "hermes"
+    ],
+    "forges": {
+        "vpc": {
+            "defaults": {
+                "id": "vpc",
+                "type": "VPC",
+                "cidrBlock": "10.69.0.0/16",
+                "natGatewayPerAZ": false
+            }
+        },
+        "ec2": {
+            "defaults": {
+                "type": "EC2",
+                "security": "private",
+                "subnet": "private",
+                "azIndex": 2,
+                "debug": false,
+                "instanceType": "c7g.xlarge",
+                "instanceCount": 1,
+                "keyName": "aws-infra-forge",
+                "detailedMonitoring": false,
+                "ebsVolumeType": "gp3",
+                "ebsSize": "30",
+                "ebsThroughput": "125",
+                "ebsIops": "3000",
+                "ebsOptimized": false,
+                "enclaveEnabled": false,
+                "networkCardCount": 1,
+                "eniCount": 1,
+                "purchaseOption": "od",
+                "spotMaxPrice": "",
+                "capacityBlockId": "",
+                "enableEfa": false,
+                "enaSrdEnabled": false,
+                "nestedVirtualization": false,
+                "osArch": "aarch64",
+                "osName": "amazon",
+                "osType": "linux",
+                "osVersion": "2023",
+                "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore",
+                "s3Location": "s3://aws-infra-forge",
+                "allowedPorts": "22@0.0.0.0/0;80,443,8443@10.69.0.0/16",
+                "allowedPortsIpv6": "22,80,443,8443@::/0",
+                "requireImdsv2": true,
+                "userDataScriptPath": "",
+                "userDataToken": "sysinfo"
+            },
+            "instances": [
+                {
+                    "id": "hermes",
+                    "security": "private",
+                    "subnet": "private",
+                    "instanceType": "c7g.xlarge",
+                    "instanceCount": 1,
+                    "ebsSize": "200",
+                    "osName": "ubuntu",
+                    "osVersion": "24.04",
+                    "allowedPorts": "22,8642,8787@0.0.0.0/0;80,443@10.69.0.0/16",
+                    "allowedPortsIpv6": "22,8642,8787@::/0",
+                    "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonBedrockFullAccess",
+                    "userDataToken": "hermes-nonroot:bedrock=true;model=global.anthropic.claude-opus-4-8;webui=true"
+                },
+                {
+                    "id": "hermesx86",
+                    "security": "private",
+                    "subnet": "private",
+                    "instanceType": "c7g.xlarge",
+                    "instanceCount": 1,
+                    "osArch": "x86_64",
+                    "ebsSize": "200",
+                    "osName": "ubuntu",
+                    "osVersion": "24.04",
+                    "allowedPorts": "22,8642,8787@0.0.0.0/0;80,443@10.69.0.0/16",
+                    "allowedPortsIpv6": "22,8642,8787@::/0",
+                    "policies": "AmazonS3FullAccess,AmazonSSMManagedInstanceCore,AmazonBedrockFullAccess",
+                    "userDataToken": "hermes-nonroot:bedrock=true;model=global.anthropic.claude-opus-4-8;webui=true"
+                }
+            ]
+        }
+    }
+}
