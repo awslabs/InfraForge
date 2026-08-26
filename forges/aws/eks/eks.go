@@ -295,6 +295,10 @@ func (e *EksForge) Create(ctx *interfaces.ForgeContext) interface{} {
 	launchTemplate := awsec2.NewLaunchTemplate(ctx.Stack, jsii.String(fmt.Sprintf("%s.EksDefaultNodePool", eksInstance.GetID())), &awsec2.LaunchTemplateProps{
 		LaunchTemplateName: jsii.String(fmt.Sprintf("%s-default-node-template", eksInstance.GetID())),
 		SecurityGroup: ctx.SecurityGroups.Default,
+		// IMDSv2：强制要求 token。部分账户（尤其中国区）开启了账户级 httpTokensEnforced，
+		// RunInstances 未显式声明 httpTokens=required 会直接被拒绝。
+		// 只设置 httpTokens，不动 HttpPutResponseHopLimit（保持 EC2 默认值，避免影响容器访问 IMDS 的既有行为）。
+		HttpTokens: awsec2.LaunchTemplateHttpTokens_REQUIRED,
 		// 在启动模板中使用密钥对
 		KeyPair: keyPair, // 直接传递密钥对对象
 		BlockDevices: &[]*awsec2.BlockDevice{

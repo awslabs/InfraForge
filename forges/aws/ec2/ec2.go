@@ -312,6 +312,17 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 		instanceProps.InstanceProfile = instanceProfile
 	}
 
+	// IMDSv2：默认强制要求 token（httpTokens=required）
+	// 直接使用实例级 MetadataOptions（AWS::EC2::Instance 支持该属性），而不是 CDK 的
+	// RequireImdsv2 选项——后者通过 InstanceRequireImdsv2Aspect 额外创建一个 LaunchTemplate，
+	// 而本函数在 EFA/Spot/多网卡等场景下会自行挂载 LaunchTemplate，Aspect 检测到实例已关联
+	// LaunchTemplate 时会直接跳过（只留一条 warning），导致 IMDSv2 静默失效。
+	// 实例级参数优先于 LaunchTemplate 中的同名参数，因此两条路径都能生效。
+	requireImdsv2 := types.GetBoolValue(ec2Instance.RequireImdsv2, true)
+	if requireImdsv2 {
+		instanceProps.HttpTokens = awsec2.HttpTokens_REQUIRED
+	}
+
 	// 首先定义一个变量来存储实例属性
 
 	// 创建实例
@@ -476,6 +487,13 @@ func createEc2Instance(stack awscdk.Stack, ec2Instance *Ec2InstanceConfig, vpc a
 		if types.GetBoolValue(ec2Instance.NestedVirtualization, false) {
 			launchTemplateData.CpuOptions = &awsec2.CfnLaunchTemplate_CpuOptionsProperty{
 				NestedVirtualization: jsii.String("enabled"),
+			}
+		}
+
+		// IMDSv2：同步写进启动模板，保证从模板直接启动（如手工基于该模板扩容）时同样强制 token
+		if requireImdsv2 {
+			launchTemplateData.MetadataOptions = &awsec2.CfnLaunchTemplate_MetadataOptionsProperty{
+				HttpTokens: jsii.String("required"),
 			}
 		}
 

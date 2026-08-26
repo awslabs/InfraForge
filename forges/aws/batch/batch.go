@@ -257,6 +257,8 @@ func (b *BatchForge) createLaunchTemplateWithUserData(inst *BatchInstanceConfig,
 	ltProps := &awsec2.LaunchTemplateProps{
 		LaunchTemplateName: jsii.String(templateName),
 		UserData:           userData,
+		// IMDSv2：强制要求 token（账户级 httpTokensEnforced 开启时，未显式声明会被拒绝启动）
+		HttpTokens: awsec2.LaunchTemplateHttpTokens_REQUIRED,
 	}
 
 	lt := awsec2.NewLaunchTemplate(ctx.Stack, jsii.String(templateName), ltProps)
