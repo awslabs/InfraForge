@@ -85,7 +85,7 @@ func printSupported() {
 		"centos":  {"7", "9", "10"},
 		"rocky":   {"8", "9", "10"},
 		"suse":    {"12", "15", "16"},
-		"redhat":  {},
+		"redhat":  {"7 (x86_64 only)", "8", "9", "10"},
 		"windows": {"2016", "2019", "2022", "2025"},
 	}
 
@@ -109,4 +109,6 @@ func printSupported() {
 	fmt.Println()
 	fmt.Println("Architectures: x86_64, aarch64")
 	fmt.Println("Note: Some older versions (CentOS 7, Debian 10) may only be available as deprecated AMIs.")
+	fmt.Println("Note: redhat resolves to the newest minor under the requested major (e.g. 9 -> 9.8),")
+	fmt.Println("      using Red Hat's official Hourly2 (subscription-included) images.")
 }
