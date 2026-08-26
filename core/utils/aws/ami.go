@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"errors"
 	"context"
+	"regexp"
 	"strings"
 	"time"
 	
@@ -120,6 +121,26 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 					"x86_64":  "CentOS Stream 10 x86_64 *",
 				},
 			},
+			// Red Hat 官方镜像（owner 309956199498）。只有 Hourly2（含订阅、按小时计费）
+			// 是公开发布的；Access2/BYOS 不作为公共 AMI 提供，因此这里不做区分。
+			// RHEL_HA（高可用附加组件）用的是 "RHEL_HA-" 前缀，天然被下面的 "RHEL-" 排除。
+			"redhat": {
+				"7": {
+					"x86_64": "RHEL-7*_HVM-*-x86_64-*-Hourly2-GP3",
+				},
+				"8": {
+					"aarch64": "RHEL-8*_HVM-*-arm64-*-Hourly2-GP3",
+					"x86_64":  "RHEL-8*_HVM-*-x86_64-*-Hourly2-GP3",
+				},
+				"9": {
+					"aarch64": "RHEL-9*_HVM-*-arm64-*-Hourly2-GP3",
+					"x86_64":  "RHEL-9*_HVM-*-x86_64-*-Hourly2-GP3",
+				},
+				"10": {
+					"aarch64": "RHEL-10*_HVM-*-arm64-*-Hourly2-GP3",
+					"x86_64":  "RHEL-10*_HVM-*-x86_64-*-Hourly2-GP3",
+				},
+			},
 			"suse": {
 				"12": {
 					"x86_64": "suse-sles-12-sp5-*-hvm-ssd-x86_64",
@@ -208,6 +229,26 @@ func GetAMIInfo(partition, osType, osVersion, instanceArch string) (string, stri
 				},
 				"8": {
 					"x86_64": "CentOS-8-ec2-*",
+				},
+			},
+			// 中国区 Red Hat 官方镜像（owner 841258680906）。实测 cn-north-1 / cn-northwest-1
+			// 的镜像名与商业区完全一致（RHEL 8/9/10，x86_64 + arm64，全部 Hourly2-GP3），
+			// 区别只有 owner 账号；中国区同样有一张 RHEL-7.9 x86_64。
+			"redhat": {
+				"7": {
+					"x86_64": "RHEL-7*_HVM-*-x86_64-*-Hourly2-GP3",
+				},
+				"8": {
+					"aarch64": "RHEL-8*_HVM-*-arm64-*-Hourly2-GP3",
+					"x86_64":  "RHEL-8*_HVM-*-x86_64-*-Hourly2-GP3",
+				},
+				"9": {
+					"aarch64": "RHEL-9*_HVM-*-arm64-*-Hourly2-GP3",
+					"x86_64":  "RHEL-9*_HVM-*-x86_64-*-Hourly2-GP3",
+				},
+				"10": {
+					"aarch64": "RHEL-10*_HVM-*-arm64-*-Hourly2-GP3",
+					"x86_64":  "RHEL-10*_HVM-*-x86_64-*-Hourly2-GP3",
 				},
 			},
 			"suse": {
@@ -310,29 +351,119 @@ func (l *ForgeAMILookup) FindAMI() (osImage string, err error) {
 	// 发送查询请求
 	result, err := ec2Client.DescribeImages(context.TODO(), input)
 	if err != nil {
-		return "", nil
+		// 之前这里返回 (nil error)，导致 AuthFailure / 无凭证 / 区域不对等真实错误
+		// 被伪装成「没找到镜像」，排查时看不到原因。
+		return "", fmt.Errorf("DescribeImages failed (owner=%s, name=%s, arch=%s): %w",
+			l.AmiOwner, l.AmiName, l.AmiArch, err)
 	}
 
-	// 找到最新的 AMI
-	var latestAmi *types.Image
-	latestTime := time.Time{}
-	for _, image := range result.Images {
+	// 选出「主版本下的最新版本」：先比镜像名里的版本号，版本相同再比发布时间。
+	//
+	// 只按发布时间取最新是不够的：当名称模式跨小版本时（如 redhat 的
+	// "RHEL-9*_HVM-*"），Red Hat 会回头重新发布旧的小版本（EUS 流），
+	// 其发布时间反而比新小版本更晚。实测 2026-08：
+	//   RHEL-9.8.0_HVM-20260728  发布于 2026-07-29
+	//   RHEL-9.6.0_HVM-20260811  发布于 2026-08-11   ← 只按时间会选中它
+	// 结果是「要 RHEL 9」拿到 9.6 而不是 9.8，而且随时会来回跳。
+	//
+	// 对于名称里已经写死版本的发行版（ubuntu 22.04、CentOS Stream 9、
+	// Windows_Server-2022 等），所有候选的版本号相同，行为与只按时间取最新一致。
+	var best *types.Image
+	var bestVer []int
+	var bestTime time.Time
+	for i := range result.Images {
+		image := &result.Images[i]
+		if image.Name == nil {
+			continue
+		}
+		ver := amiNameVersion(*image.Name)
+		var t time.Time
 		if image.CreationDate != nil {
-			creationDate, err := time.Parse(time.RFC3339, *image.CreationDate)
-			if err == nil && creationDate.After(latestTime) {
-				latestTime = creationDate
-				latestAmi = &image
+			if parsed, perr := time.Parse(time.RFC3339, *image.CreationDate); perr == nil {
+				t = parsed
+			}
+		}
+		if best == nil {
+			best, bestVer, bestTime = image, ver, t
+			continue
+		}
+		switch cmpVersion(ver, bestVer) {
+		case 1:
+			best, bestVer, bestTime = image, ver, t
+		case 0:
+			if t.After(bestTime) {
+				best, bestVer, bestTime = image, ver, t
 			}
 		}
 	}
 
-	// 返回最新 AMI ID
-	if latestAmi != nil {
-		return *latestAmi.ImageId, nil
-	} else {
-		return "", nil
+	if best != nil && best.ImageId != nil {
+		return *best.ImageId, nil
 	}
+	return "", nil
 
+}
+
+// amiNameVersion 把镜像名里出现的所有数字按顺序取出来，用于版本比较：
+//	RHEL-9.8.0_HVM-20260728-x86_64-0-Hourly2-GP3    -> [9 8 0 20260728 86 64 0 2 3]
+//	RHEL-9.6.0_HVM-20260811-x86_64-0-Hourly2-GP3    -> [9 6 0 20260811 86 64 0 2 3]
+//	                                                      ↑ 第二位就能分出 9.8 > 9.6
+//
+// 刻意不去「只取第一个版本号」：镜像名里第一个数字未必是版本号，例如
+// ubuntu 的 hvm-ssd-gp3 会让 gp3 的 3 被误当成版本。逐位比较所有数字则天然稳健——
+// 同一族镜像的名字结构一致，前面几位相同，后面自然落到构建日期那一位上，
+// 效果等同于按发布时间排序（也就是改动前的行为）。
+//
+// 取不到数字时返回 nil，视为「无版本信息」，完全退化为按发布时间比较。
+var amiVersionRe = regexp.MustCompile(`[0-9]+`)
+
+func amiNameVersion(name string) []int {
+	matches := amiVersionRe.FindAllString(name, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	nums := make([]int, 0, len(matches))
+	for _, m := range matches {
+		n := 0
+		overflow := false
+		for _, c := range m {
+			n = n*10 + int(c-'0')
+			if n > 1<<50 { // 防御异常长数字串
+				overflow = true
+				break
+			}
+		}
+		if overflow {
+			continue
+		}
+		nums = append(nums, n)
+	}
+	return nums
+}
+
+// cmpVersion 比较两个版本号切片：a>b 返回 1，a<b 返回 -1，相等返回 0。
+// 长度不同时，缺少的位视为 0（8.10 > 8.8，9.6 < 9.6.1）。
+func cmpVersion(a, b []int) int {
+	n := len(a)
+	if len(b) > n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		var x, y int
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x > y {
+			return 1
+		}
+		if x < y {
+			return -1
+		}
+	}
+	return 0
 }
 
 // DescribeAMI 函数用于描述给定的 AMI 并返回其根设备名称
