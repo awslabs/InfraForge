@@ -1,17 +1,36 @@
 {
+    "_note": [
+        "Reference sample ONLY - no code reads this file. It documents the shape of the JSON",
+        "returned by dependency.GetDependencyInfo() (the 'magicToken' passed into UserData and",
+        "into ParallelCluster/ECS/EKS/Batch config builders).",
+        "Keys are '<TYPE>:<id>' where <TYPE> is the forge key upper-cased by",
+        "core/manager/forgemanager.go:processForge (e.g. forge 'lustre' -> 'LUSTRE:fsx').",
+        "For an EC2 forge with instanceCount > 1 the numeric suffix is trimmed, so 'EC2:master'",
+        "covers master.1, master.2, ...",
+        "Only forges that implement GetProperties() can be used as a dependsOn target:",
+        "DS, EC2, ECS, EFS, EKS, LUSTRE, RDS (and VPC, which is however never stored in",
+        "dependency.GlobalManager because ForgeManager.CreateVPC bypasses processForge).",
+        "BATCH, PARALLELCLUSTER and HYPERPOD do not implement GetProperties() and therefore",
+        "resolve to 'resource not found'.",
+        "Property values below are placeholders; at synth time most of them are CDK tokens.",
+        "The property names are authoritative and mirror the forges/aws/*/*.go code."
+    ],
     "dependencies": {
         "DS:bingds": {
             "type": "DS",
             "id": "bingds",
             "properties": {
+                "attrId": "d-0123456789",
+                "domainName": "bingds.infraforge.aws",
+                "shortName": "bingds",
+                "edition": "Standard",
+                "name": "bingds.infraforge.aws",
+                "password": "<generated-or-configured-password>",
+                "secretARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:infraforge/ds/bingds-AbCdEf",
                 "attrDnsIpAddresses": [
                     "10.69.4.214",
                     "10.69.3.69"
                 ],
-                "attrId": "d-96674f91b5",
-                "name": "bingds.infraforge.aws",
-                "password": "P3.14159265i",
-                "shortName": "bingds",
                 "unixHome": "/efs/home"
             }
         },
@@ -19,16 +38,20 @@
             "type": "EC2",
             "id": "master",
             "properties": {
+                "instanceCount": 2,
+                "instanceType": "c7g.xlarge",
+                "osName": "amazon",
+                "osVersion": "2023",
                 "instances": [
                     {
-                        "instanceId": "i-023bb5bc101073e26",
-			"instancePrivateDnsName": "ip-10-69-3-103.ap-southeast-1.compute.internal",
-                        "instancePrivateIp": "10.69.3.130"
+                        "instanceId": "i-0123456789abcdef0",
+                        "instancePrivateIp": "10.69.3.130",
+                        "instancePrivateDnsName": "ip-10-69-3-130.us-east-1.compute.internal"
                     },
                     {
-                        "instanceId": "i-01234567890123456",
-			"instancePrivateDnsName": "ip-10-69-3-131.ap-southeast-1.compute.internal",
-                        "instancePrivateIp": "10.69.3.131"
+                        "instanceId": "i-0123456789abcdef1",
+                        "instancePrivateIp": "10.69.3.131",
+                        "instancePrivateDnsName": "ip-10-69-3-131.us-east-1.compute.internal"
                     }
                 ]
             }
@@ -37,8 +60,54 @@
             "type": "EFS",
             "id": "efs",
             "properties": {
-                "fileSystemId": "fs-0389c91c0321b176d",
+                "fileSystemId": "fs-0123456789abcdef0",
+                "fileSystemArn": "arn:aws:elasticfilesystem:us-east-1:123456789012:file-system/fs-0123456789abcdef0",
                 "mountPoint": "/efs"
+            }
+        },
+        "LUSTRE:fsx": {
+            "type": "LUSTRE",
+            "id": "fsx",
+            "properties": {
+                "fileSystemId": "fs-0123456789abcdef0",
+                "dnsName": "fs-0123456789abcdef0.fsx.us-east-1.amazonaws.com",
+                "mountName": "abcdefgh",
+                "mountPoint": "/fsx",
+                "storageCapacityGiB": 1200
+            }
+        },
+        "ECS:ecs1": {
+            "type": "ECS",
+            "id": "ecs1",
+            "properties": {
+                "clusterName": "aws-infra-forge-ecs1",
+                "clusterArn": "arn:aws:ecs:us-east-1:123456789012:cluster/aws-infra-forge-ecs1"
+            }
+        },
+        "EKS:eks1": {
+            "type": "EKS",
+            "id": "eks1",
+            "properties": {
+                "clusterName": "aws-infra-forge-eks1",
+                "clusterArn": "arn:aws:eks:us-east-1:123456789012:cluster/aws-infra-forge-eks1",
+                "clusterEndpoint": "https://ABCDEF0123456789.gr7.us-east-1.eks.amazonaws.com",
+                "eksVersion": "1.34",
+                "hyperPodJob": "<CDK construct, only present when HyperPod components are enabled>",
+                "karpenterChart": "<CDK construct, only present when Karpenter is enabled>"
+            }
+        },
+        "RDS:rds1": {
+            "type": "RDS",
+            "id": "rds1",
+            "properties": {
+                "username": "admin",
+                "engine": "aurora-mysql",
+                "port": 3306,
+                "useManagedPassword": true,
+                "databaseName": "slurm_accounting",
+                "secretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:infraforge/rds/rds1-AbCdEf",
+                "endpoint": "aws-infra-forge-rds1.cluster-abcdefghijkl.us-east-1.rds.amazonaws.com",
+                "readEndpoint": "aws-infra-forge-rds1.cluster-ro-abcdefghijkl.us-east-1.rds.amazonaws.com"
             }
         }
     }
